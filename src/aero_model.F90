@@ -28,7 +28,6 @@ module aero_model
   use mo_setsox,             only: setsox
   use mo_mass_xforms,        only: vmr2mmr, mmr2vmr, mmr2vmri
   use mo_chem_utls,          only: get_rxt_ndx, get_spc_ndx
-  use ref_pres,              only: top_lev => clim_modal_aero_top_lev
   use wv_saturation,         only: qsat_water
   !
   use oslo_aero_depos,       only: oslo_aero_depos_init

@@ -607,9 +607,9 @@ contains
     call outfld('BCFREZCNT', nnucct_bc(:ncol,:), ncol, lchnk)
     call outfld('BCFREZDEP', nnudep_bc(:ncol,:), ncol, lchnk)
 
-    call outfld('NIMIX_IMM', niimm_bc+niimm_dst(:ncol,:), ncol, lchnk)
-    call outfld('NIMIX_CNT', nicnt_bc+nicnt_dst(:ncol,:), ncol, lchnk)
-    call outfld('NIMIX_DEP', nidep_bc+nidep_dst(:ncol,:), ncol, lchnk)
+    call outfld('NIMIX_IMM', niimm_bc(:ncol,:)+niimm_dst(:ncol,:), ncol, lchnk)
+    call outfld('NIMIX_CNT', nicnt_bc(:ncol,:)+nicnt_dst(:ncol,:), ncol, lchnk)
+    call outfld('NIMIX_DEP', nidep_bc(:ncol,:)+nidep_dst(:ncol,:), ncol, lchnk)
 
     call outfld('DSTNICNT', nicnt_dst(:ncol,:), ncol, lchnk)
     call outfld('DSTNIDEP', nidep_dst(:ncol,:), ncol, lchnk)

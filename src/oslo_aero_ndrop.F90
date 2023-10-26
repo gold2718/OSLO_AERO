@@ -1410,7 +1410,7 @@ contains
        call ccncalc_oslo(state, pbuf, cs, hasAerosol, numberConcentration, volumeConcentration, &
             hygroscopicity, lnSigma, ccn)
        do l = 1, psat
-          call outfld(ccn_name(l), ccn(1,1,l), ncol, lchnk)
+          call outfld(ccn_name(l), ccn(:ncol,:,l), ncol, lchnk)
        enddo
     end if
 
