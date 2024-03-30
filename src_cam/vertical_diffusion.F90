@@ -74,7 +74,7 @@ use phys_control,     only : phys_getopts
 use time_manager,     only : is_first_step
 ! OSLO_AERO begin
 use oslo_aero_share, only: getNumberOfAerosolTracers, fillAerosolTracerList
-! OSLO_AERO enda
+! OSLO_AERO end
 
 
 implicit none

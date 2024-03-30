@@ -56,8 +56,7 @@ module oslo_aero_hetfrz
 
   ! Namelist variables
   logical  :: hist_hetfrz_classnuc = .false.
-  real(r8) :: hetfrz_bc_scalfac = -huge(1._r8) ! scaling factor for BC  (NOT USED)
-  real(r8) :: hetfrz_dust_scalfac = -huge(1._r8) ! scaling factor for dust (NOT USED)
+  real(r8) :: hetfrz_aer_scalfac = -huge(1._r8) ! scaling factor for aerosols
 
   ! Vars set via init method.
   real(r8) :: mincld      ! minimum allowed cloud fraction
@@ -102,6 +101,8 @@ module oslo_aero_hetfrz
   real(r8) :: dim_f_imm_dust_a3(pdf_n_theta) = 0.0_r8
   logical  :: pdf_imm_in = .true.
 
+  real(r8), parameter :: eps = 1.0e-14_r8
+
 !===============================================================================
 contains
 !===============================================================================
@@ -116,7 +117,7 @@ contains
     integer :: unitn, ierr
     character(len=*), parameter :: subname = 'hetfrz_classnuc_cam_readnl'
 
-    namelist /hetfrz_classnuc_nl/ hist_hetfrz_classnuc, hetfrz_bc_scalfac, hetfrz_dust_scalfac
+    namelist /hetfrz_classnuc_nl/ hist_hetfrz_classnuc, hetfrz_aer_scalfac
     !-----------------------------------------------------------------------------
 
     if (masterproc) then
@@ -133,15 +134,12 @@ contains
 
     call mpi_bcast(hist_hetfrz_classnuc, 1, mpi_logical, mstrid, mpicom, ierr)
     if (ierr /= mpi_success) call endrun(subname//" mpi_bcast: hist_hetfrz_classnuc")
-    call mpi_bcast(hetfrz_bc_scalfac, 1, mpi_real8, mstrid, mpicom, ierr)
-    if (ierr /= mpi_success) call endrun(subname//" mpi_bcast: hetfrz_bc_scalfac")
-    call mpi_bcast(hetfrz_dust_scalfac, 1, mpi_real8, mstrid, mpicom, ierr)
-    if (ierr /= mpi_success) call endrun(subname//" mpi_bcast: hetfrz_dust_scalfac")
+    call mpi_bcast(hetfrz_aer_scalfac, 1, mpi_real8, mstrid, mpicom, ierr)
+    if (ierr /= mpi_success) call endrun(subname//" mpi_bcast: hetfrz_aer_scalfac")
 
     if (masterproc) then
        write(iulog,*) subname,': hist_hetfrz_classnuc = ',hist_hetfrz_classnuc
-       write(iulog,*) subname,': hetfrz_bc_scalfac = ',hetfrz_bc_scalfac
-       write(iulog,*) subname,': hetfrz_dust_scalfac = ',hetfrz_dust_scalfac
+       write(iulog,*) subname,': hetfrz_aer_scalfac = ', hetfrz_aer_scalfac
     end if
 
   end subroutine hetfrz_classnuc_oslo_readnl
@@ -187,29 +185,32 @@ contains
     ! pbuf fields used by hetfrz_classnuc
     ast_idx = pbuf_get_index('AST')
 
-    call addfld('bc_num',        (/ 'lev' /), 'A', '#/cm3', 'total bc number')
-    call addfld('dst1_num',      (/ 'lev' /), 'A', '#/cm3', 'total dst1 number')
-    call addfld('dst3_num',      (/ 'lev' /), 'A', '#/cm3', 'total dst3 number')
-    call addfld('bcc_num',       (/ 'lev' /), 'A', '#/cm3', 'coated bc number')
-    call addfld('dst1c_num',     (/ 'lev' /), 'A', '#/cm3', 'coated dst1 number')
-    call addfld('dst3c_num',     (/ 'lev' /), 'A', '#/cm3', 'coated dst3 number')
-    call addfld('bcuc_num',      (/ 'lev' /), 'A', '#/cm3', 'uncoated bc number')
-    call addfld('dst1uc_num',    (/ 'lev' /), 'A', '#/cm3', 'uncoated dst1 number')
-    call addfld('dst3uc_num',    (/ 'lev' /), 'A', '#/cm3', 'uncoated dst3 number')
+    call addfld('bc_num',          (/ 'lev' /), 'A', '#/cm3', 'total bc number')
+    call addfld('dst1_num',        (/ 'lev' /), 'A', '#/cm3', 'total dst1 number')
+    call addfld('dst3_num',        (/ 'lev' /), 'A', '#/cm3', 'total dst3 number')
+    call addfld('bc_num_scaled',   (/ 'lev' /), 'A', '#/cm3', 'total bc number scaled by hetfrz_aer_scalfac')
+    call addfld('dst1_num_scaled', (/ 'lev' /), 'A', '#/cm3', 'total dst1 number scaled by hetfrz_aer_scalfac')
+    call addfld('dst3_num_scaled', (/ 'lev' /), 'A', '#/cm3', 'total dst3 number scaled by hetfrz_aer_scalfac')
+    call addfld('bcc_num',        (/ 'lev' /), 'A', '#/cm3', 'coated bc number')
+    call addfld('dst1c_num',       (/ 'lev' /), 'A', '#/cm3', 'coated dst1 number')
+    call addfld('dst3c_num',       (/ 'lev' /), 'A', '#/cm3', 'coated dst3 number')
+    call addfld('bcuc_num',        (/ 'lev' /), 'A', '#/cm3', 'uncoated bc number')
+    call addfld('dst1uc_num',      (/ 'lev' /), 'A', '#/cm3', 'uncoated dst1 number')
+    call addfld('dst3uc_num',      (/ 'lev' /), 'A', '#/cm3', 'uncoated dst3 number')
 
-    call addfld('bc_a1_num',     (/ 'lev' /), 'A', '#/cm3', 'interstitial bc number')
-    call addfld('dst_a1_num',    (/ 'lev' /), 'A', '#/cm3', 'interstitial dst1 number')
-    call addfld('dst_a3_num',    (/ 'lev' /), 'A', '#/cm3', 'interstitial dst3 number')
-    call addfld('bc_c1_num',     (/ 'lev' /), 'A', '#/cm3', 'cloud borne bc number')
-    call addfld('dst_c1_num',    (/ 'lev' /), 'A', '#/cm3', 'cloud borne dst1 number')
-    call addfld('dst_c3_num',    (/ 'lev' /), 'A', '#/cm3', 'cloud borne dst3 number')
+    call addfld('bc_a1_num',       (/ 'lev' /), 'A', '#/cm3', 'interstitial bc number')
+    call addfld('dst_a1_num',      (/ 'lev' /), 'A', '#/cm3', 'interstitial dst1 number')
+    call addfld('dst_a3_num',      (/ 'lev' /), 'A', '#/cm3', 'interstitial dst3 number')
+    call addfld('bc_c1_num',       (/ 'lev' /), 'A', '#/cm3', 'cloud borne bc number')
+    call addfld('dst_c1_num',      (/ 'lev' /), 'A', '#/cm3', 'cloud borne dst1 number')
+    call addfld('dst_c3_num',      (/ 'lev' /), 'A', '#/cm3', 'cloud borne dst3 number')
 
-    call addfld('fn_bc_c1_num',  (/ 'lev' /), 'A', '#/cm3', 'cloud borne bc number derived from fn')
-    call addfld('fn_dst_c1_num', (/ 'lev' /), 'A', '#/cm3', 'cloud borne dst1 number derived from fn')
-    call addfld('fn_dst_c3_num', (/ 'lev' /), 'A', '#/cm3', 'cloud borne dst3 number derived from fn')
+    call addfld('fn_bc_c1_num',    (/ 'lev' /), 'A', '#/cm3', 'cloud borne bc number derived from fn')
+    call addfld('fn_dst_c1_num',   (/ 'lev' /), 'A', '#/cm3', 'cloud borne dst1 number derived from fn')
+    call addfld('fn_dst_c3_num',   (/ 'lev' /), 'A', '#/cm3', 'cloud borne dst3 number derived from fn')
 
-    call addfld('na500',         (/ 'lev' /), 'A', '#/cm3', 'interstitial aerosol number with D>500 nm')
-    call addfld('totna500',      (/ 'lev' /), 'A', '#/cm3', 'total aerosol number with D>500 nm')
+    call addfld('na500',           (/ 'lev' /), 'A', '#/cm3', 'interstitial aerosol number with D>500 nm')
+    call addfld('totna500',        (/ 'lev' /), 'A', '#/cm3', 'total aerosol number with D>500 nm')
 
     call addfld('FREQIMM', (/ 'lev' /), 'A', 'fraction', 'Fractional occurance of immersion  freezing')
     call addfld('FREQCNT', (/ 'lev' /), 'A', 'fraction', 'Fractional occurance of contact    freezing')
@@ -257,6 +258,11 @@ contains
        call add_default('bc_num', 1, ' ')
        call add_default('dst1_num', 1, ' ')
        call add_default('dst3_num', 1, ' ')
+       if (abs(hetfrz_aer_scalfac - 1.0_r8) > eps) then
+          call add_default('bc_num_scaled', 1, ' ')
+          call add_default('dst1_num_scaled', 1, ' ')
+          call add_default('dst3_num_scaled', 1, ' ')
+       end if
        call add_default('bcc_num', 1, ' ')
        call add_default('dst1c_num', 1, ' ')
        call add_default('dst3c_num', 1, ' ')
@@ -383,6 +389,11 @@ contains
     real(r8) :: total_aer_num(pcols,pver,3)
     real(r8) :: coated_aer_num(pcols,pver,3)
     real(r8) :: uncoated_aer_num(pcols,pver,3)
+    real(r8) :: total_interstitial_aer_num_scaled(pcols,pver,3)
+    real(r8) :: total_cloudborne_aer_num_scaled(pcols,pver,3)
+    real(r8) :: total_aer_num_scaled(pcols,pver,3)
+    real(r8) :: coated_aer_num_scaled(pcols,pver,3)
+    real(r8) :: uncoated_aer_num_scaled(pcols,pver,3)
     real(r8) :: fn_cloudborne_aer_num(pcols,pver,3)
     real(r8) :: con1, r3lx, supersatice
     real(r8) :: qcic
@@ -467,12 +478,21 @@ contains
           fn_cloudborne_aer_num(i,k,1) = total_aer_num(i,k,1)*factnum(i,k,MODE_IDX_OMBC_INTMIX_COAT_AIT)  ! bc
           fn_cloudborne_aer_num(i,k,2) = total_aer_num(i,k,2)*factnum(i,k,MODE_IDX_DST_A2)
           fn_cloudborne_aer_num(i,k,3) = total_aer_num(i,k,3)*factnum(i,k,MODE_IDX_DST_A3)
+          total_aer_num_scaled(i,k,:) = total_aer_num(i,k,:) * hetfrz_aer_scalfac
+          coated_aer_num_scaled(i,k,:) = coated_aer_num(i,k,:) * hetfrz_aer_scalfac
+          uncoated_aer_num_scaled(i,k,:) = uncoated_aer_num(i,k,:) * hetfrz_aer_scalfac
+          total_interstitial_aer_num_scaled(i,k,:) = total_interstitial_aer_num(i,k,:) * hetfrz_aer_scalfac
+          total_cloudborne_aer_num_scaled(i,k,:) = total_cloudborne_aer_num(i,k,:) * hetfrz_aer_scalfac
        end do
     end do
 
-    call outfld('bc_num',        total_aer_num(:,:,1),    pcols, lchnk)
-    call outfld('dst1_num',      total_aer_num(:,:,2),    pcols, lchnk)
-    call outfld('dst3_num',      total_aer_num(:,:,3),    pcols, lchnk)
+    call outfld('bc_num',          total_aer_num(:,:,1),        pcols, lchnk)
+    call outfld('dst1_num',        total_aer_num(:,:,2),        pcols, lchnk)
+    call outfld('dst3_num',        total_aer_num(:,:,3),        pcols, lchnk)
+
+    call outfld('bc_num_scaled',   total_aer_num_scaled(:,:,1), pcols, lchnk)
+    call outfld('dst1_num_scaled', total_aer_num_scaled(:,:,2), pcols, lchnk)
+    call outfld('dst3_num_scaled', total_aer_num_scaled(:,:,3), pcols, lchnk)
 
     call outfld('bcc_num',       coated_aer_num(:,:,1),   pcols, lchnk)
     call outfld('dst1c_num',     coated_aer_num(:,:,2),   pcols, lchnk)
@@ -557,9 +577,9 @@ contains
                   deltatin,  t(i,k),  pmid(i,k),  supersatice,   &
                   fn,  r3lx,  ncic*rho(i,k)*1.0e-6_r8,  frzbcimm(i,k),  frzduimm(i,k),   &
                   frzbccnt(i,k),  frzducnt(i,k),  frzbcdep(i,k),  frzdudep(i,k),  hetraer(i,k,:), &
-                  awcam(i,k,:), awfacm(i,k,:), dstcoat(i,k,:), total_aer_num(i,k,:),  &
-                  coated_aer_num(i,k,:), uncoated_aer_num(i,k,:), total_interstitial_aer_num(i,k,:), &
-                  total_cloudborne_aer_num(i,k,:), errstring)
+                  awcam(i,k,:), awfacm(i,k,:), dstcoat(i,k,:), total_aer_num_scaled(i,k,:),  &
+                  coated_aer_num_scaled(i,k,:), uncoated_aer_num_scaled(i,k,:), total_interstitial_aer_num_scaled(i,k,:), &
+                  total_cloudborne_aer_num_scaled(i,k,:), errstring)
 
              call handle_errmsg(errstring, subname="hetfrz_classnuc_calc")
 
