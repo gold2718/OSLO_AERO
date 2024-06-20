@@ -43,7 +43,6 @@ module aero_model
   use oslo_aero_share,          only: lifeCycleNumberMedianRadius, rhopart, lifeCycleSigma
   use oslo_aero_share,          only: l_so4_a2, l_bc_n, l_bc_ax
   use oslo_aero_share,          only: MODE_IDX_BC_NUC, MODE_IDX_BC_EXT_AC
-  use oslo_aero_control,        only: oslo_aero_ctl_readnl
   use oslo_aero_depos,          only: oslo_aero_depos_init
   use oslo_aero_depos,          only: oslo_aero_depos_dry, oslo_aero_depos_wet, oslo_aero_wetdep_init
   use oslo_aero_coag,           only: initializeCoagulation, coagtend, clcoag
@@ -55,7 +54,6 @@ module aero_model
   use oslo_aero_share,          only: getNumberofTracersInMode, getCloudTracerIndexDirect, getCloudTracerName
   use oslo_aero_share,          only: getCloudTracerName, getTracerIndex, aero_register
   use oslo_aero_sox_cldaero,    only: sox_cldaero_init
-  use oslo_aero_microp,         only: oslo_aero_microp_readnl
   use oslo_aero_sw_tables,      only: initopt
   use oslo_aero_aerodry_tables, only: initdry
   use oslo_aero_aerocom_tables, only: initaeropt
@@ -91,9 +89,13 @@ contains
 !=============================================================================
 
   subroutine aero_model_readnl(nlfilename)
+    use oslo_aero_control,  only: oslo_aero_ctl_readnl
+    use oslo_aero_condtend, only: oslo_aero_condensation_readnl
+    use oslo_aero_microp,   only: oslo_aero_microp_readnl
 
     ! read aerosol namelist options
 
+    ! Dummy argument
     character(len=*), intent(in) :: nlfilename  ! filepath for file containing namelist input
 
     ! Local variables
@@ -123,6 +125,7 @@ contains
     if (ierr /= mpi_success) call endrun(subname//" mpi_bcast: sol_factic_interstitial")
 
     call oslo_aero_ctl_readnl(nlfilename)
+    call oslo_aero_condensation_readnl(nlfilename)
     call oslo_aero_microp_readnl(nlfilename)
 
   end subroutine aero_model_readnl

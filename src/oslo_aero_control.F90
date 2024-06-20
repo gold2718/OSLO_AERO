@@ -49,11 +49,13 @@ contains
     ! local variables
     integer :: unitn, ierr
     logical :: fileExists=.false.
-    character(len=*), parameter :: subname = 'oslo_ctl_readnl'
+    character(len=*), parameter :: subname = 'oslo_aero_ctl_readnl'
 
     namelist /oslo_ctl_nl/ volc_fraction_coarse, aerotab_table_dir, dms_source, &
                            dms_source_type, opom_source, opom_source_type, &
-                           ocean_filename, ocean_filepath, dms_cycle_year, opom_cycle_year
+                           ocean_filename, ocean_filepath, dms_cycle_year, &
+                           opom_cycle_year
+
     !-----------------------------------------------------------------------------
 
     if (masterproc) then
@@ -110,7 +112,7 @@ contains
     endif
 
     ! Error check for OCEAN file
-    inquire( file=trim(ocean_filepath)//'/'//trim(ocean_filename), exist=fileExists )
+    inquire(file=trim(ocean_filepath)//'/'//trim(ocean_filename), exist=fileExists)
     if(.not. fileExists)then
        call endrun("oslo_aero_control: can not find ocean file "//trim(ocean_filepath)//'/'//trim(ocean_filename))
     else
@@ -133,7 +135,7 @@ contains
     else
        call endrun("oslo_aero_control: no valid dms source from namelist: " //trim(dms_source))
     endif
-    
+
     ! Error check for opom_source from namelist
     if ( opom_source=='no_file' .or. &
          opom_source=='nilsson' .or. &
