@@ -231,6 +231,9 @@ CONTAINS
       end do
 
       normalizedCondensationSink(:,:) = 0.0_r8
+      if (.not. allocated(normalizedCondensationSink_sec)) then
+         allocate(normalizedCondensationSink_sec((0:nmodes,N_COND_VAP)))
+      end if
       !Find sink per particle in mode "imode"
       !Eqn 13 in Kulmala et al, Tellus 53B, 2001, pp 479
       !http://onlinelibrary.wiley.com/doi/10.1034/j.1600-0889.2001.530411.x/abstract
@@ -663,11 +666,11 @@ CONTAINS
       ! Subroutine to calculate nucleation (formation) rates of new particles
       ! At the moment, the final nucleation rate consists of
       !  (1) Binary sulphuric acid-water nucleation in whole atmosphere (Vehkamaki et al., 2002, JGR)
-      !      JGR, vol 107, No D22, http://onlinelibrary.wiley.com/doi/10.1029/2002JD002184/abstract
+      !      JGR, vol 107, No D22, https://onlinelibrary.wiley.com/doi/10.1029/2002JD002184/abstract
       !  (2) Boundary-layer nucleation
-      !      Paasonen et al (2010), ACP, vol 10, pp 11223: http://www.atmos-chem-phys.net/10/11223/2010/acp-10-11223-2010.html
+      !      Paasonen et al (2010), ACP, vol 10, pp 11223: https://www.atmos-chem-phys.net/10/11223/2010/acp-10-11223-2010.html
       !  (3) First version published ACP (Risto Makkonen)
-      !      ACP, vol 14, no 10, pp 5127 http://www.atmos-chem-phys.net/14/5127/2014/acp-14-5127-2014.html
+      !      ACP, vol 14, no 10, pp 5127 https://www.atmos-chem-phys.net/14/5127/2014/acp-14-5127-2014.html
 
       !-- Arguments
       integer,  intent(in)  :: lchnk               ! chunk identifier
@@ -702,8 +705,11 @@ CONTAINS
       real(r8), parameter   :: gasconst_R=r_universal/1000.0_r8    ! universal gas constant [J mol-1 K-1]
       real(r8), parameter   :: h2so4_dens=1841._r8       ! h2so4 density [kg m-3]
       real(r8), parameter   :: org_dens=2000._r8         ! density of organics [kg m-3], based on RM assumptions
+      ! values from Table 3 in Paasonen et al (2010), modified version of eqn 14
+      real(r8), parameter   :: A_s1 = 6.1E-7_r8
+      real(r8), parameter   :: A_s2 = 0.39E-7_r8
 
-      integer               :: i,k
+      integer               :: icol, ilev
       real(r8)              :: qs(pcols,pver)            ! Saturation specific humidity
       real(r8)              :: relhum(pcols,pver)        ! Relative humidity
       real(r8)              :: h2so4(pcols,pver)         ! Sulphuric acid concentration [#/cm3]
@@ -741,7 +747,7 @@ CONTAINS
       formrate_bin(:,:)=0._r8
       formrate_pbl(:,:)=0._r8
       !-- The highest level in planetary boundary layer
-      do i=1,ncol
+      do icol = 1, ncol
          pblht_lim(i)=MIN(MAX(pblht(i),500._r8),7000._r8)
       end do
 
@@ -758,35 +764,35 @@ CONTAINS
 
       !-- Conversion of H2SO4 from kg/kg to #/cm3
       !-- and calculation of relative humidity (needed by binary nucleation parameterization)
-      do k=1,pver
-         do i=1,ncol
-            rhoair(i,k)=pmid(i,k)/(t(i,k)*rair)
+      do ilev = 1, pver
+         do icol = 1, ncol
+            rhoair(icol,ilev)=pmid(icol,ilev)/(t(icol,ilev)*rair)
             !avogad*1.e-3_r8 to get molec/mol instead of molec/kmol
-            h2so4(i,k)=(1.e-6_r8*h2so4pc(i,k)*avogad*1.e-3_r8*rhoair(i,k))/(molmass_h2so4*1.E-3_r8)
-            orgforgrowth(i,k)=(1.e-6_r8*oxidorg(i,k)*avogad*1.e-3_r8*rhoair(i,k))/(molmass_soa*1.E-3_r8)
-            orgforgrowth(i,k)=MAX(MIN(orgforgrowth(i,k),1.E10_r8),0._r8)
+            h2so4(icol,ilev)=(1.e-6_r8*h2so4pc(icol,ilev)*avogad*1.e-3_r8*rhoair(icol,ilev))/(molmass_h2so4*1.E-3_r8)
+            orgforgrowth(icol,ilev)=(1.e-6_r8*oxidorg(icol,ilev)*avogad*1.e-3_r8*rhoair(icol,ilev))/(molmass_soa*1.E-3_r8)
+            orgforgrowth(icol,ilev)=MAX(MIN(orgforgrowth(icol,ilev),1.E10_r8),0._r8)
 
-            call qsat_water(t(i,k), pmid(i,k), dummy, qs(i,k))
+            call qsat_water(t(icol,ilev), pmid(icol,ilev), dummy, qs(icol,ilev))
 
-            relhum(i,k) = h2ommr(i,k)/qs(i,k)
-            relhum(i,k) = max(relhum(i,k),0.0_r8)
-            relhum(i,k) = min(relhum(i,k),1.0_r8)
+            relhum(icol,ilev) = h2ommr(icol,ilev)/qs(icol,ilev)
+            relhum(icol,ilev) = max(relhum(icol,ilev),0.0_r8)
+            relhum(icol,ilev) = min(relhum(icol,ilev),1.0_r8)
          end do !ncol
       end do     !layers
 
       !-- Binary sulphuric acid-water nucleation rate
       if(atm_nucleation) then
-         do k=1,pver
-            do i=1,ncol
+         do ilev = 1, pver
+            do icol = 1, ncol
 
                ! Calculate nucleation only for valid thermodynamic conditions:
-               zrhoa = max(h2so4(i,k),1.E+4_r8)
+               zrhoa = max(h2so4(icol,ilev),1.E+4_r8)
                zrhoa = min(zrhoa,1.E11_r8)
 
-               zrh   = max(relhum(i,k),1.E-4_r8)
+               zrh   = max(relhum(icol,ilev),1.E-4_r8)
                zrh   = min(zrh,1.0_r8)
 
-               zt    = max(t(i,k),190.15_r8)
+               zt    = max(t(icol,ilev),190.15_r8)
                zt    = min(zt,300.15_r8)
 
                zt2 = zt*zt
@@ -930,8 +936,8 @@ CONTAINS
 
                ! limitation to 1E+10 [1/cm3s]
 
-               nuclrate_bin(i,k)=MAX(MIN(zjnuc,1.E10_r8),0._r8)
-               nuclsize_bin(i,k)=MAX(MIN(zrc,1.E2_r8),0.01_r8)
+               nuclrate_bin(icol,ilev)=MAX(MIN(zjnuc,1.E10_r8),0._r8)
+               nuclsize_bin(icol,ilev)=MAX(MIN(zrc,1.E2_r8),0.01_r8)
 
             end do
          end do
@@ -941,82 +947,81 @@ CONTAINS
       end if
 
       !-- Boundary layer nucleation
-      do k=1,pver
-         do i=1,ncol
+      do ilev = 1, pver
+         do icol = 1, ncol
 
             !-- Nucleation rate #/cm3/s
-            if(pblht_lim(i)>zm(i,k) .AND. pbl_nucleation > 0) then
+            if(pblht_lim(i)>zm(icol,ilev) .AND. pbl_nucleation > 0) then
 
                if(pbl_nucleation == 1) then
 
                   !-- Paasonen et al. (2010), eqn 10, Table 4
-                  nuclrate_pbl(i,k)=(1.7E-6_r8)*h2so4(i,k)
+                  nuclrate_pbl(icol,ilev)=(1.7E-6_r8)*h2so4(icol,ilev)
 
                else if(pbl_nucleation == 2) then
 
-                  !-- Paasonen et al. (2010)
-                  !values from Table 3 in Paasonen et al (2010), modified version of eqn 14
-                  nuclrate_pbl(i,k)=(6.1E-7_r8)*h2so4(i,k)+(0.39E-7_r8)*orgforgrowth(i,k)
+                  !-- Paasonen et al. (2010), eqn 18, Table 3
+                  nuclrate_pbl(icol,ilev)=(A_s1 * h2so4(icol,ilev)) + (A_s2 * orgforgrowth(icol,ilev))
 
                else if(pbl_nucleation == 3) then
                   ! Riccobono 2014:
-                  nuclrate_pbl(i,k)=3.27E-21_r8*h2so4(i,k)**2*orgforgrowth(i,k)
+                  nuclrate_pbl(icol,ilev)=3.27E-21_r8*h2so4(icol,ilev)**2*orgforgrowth(icol,ilev)
 
                end if
 
-               nuclrate_pbl(i,k)=MAX(MIN(nuclrate_pbl(i,k),1.E10_r8),0._r8)
+               nuclrate_pbl(icol,ilev)=MAX(MIN(nuclrate_pbl(icol,ilev),1.E10_r8),0._r8)
             else !Not using PBL-nucleation
-               nuclrate_pbl(i,k)=0._r8
+               nuclrate_pbl(icol,ilev)=0._r8
             end if
             !Size [nm] of particles in PBL
-            nuclsize_pbl(i,k)=2._r8
+            nuclsize_pbl(icol,ilev)=2._r8
 
          end do !horizontal points
       end do     !levels
 
       !-- Calculate total nucleated mass
-      do k=1,pver
-         do i=1,ncol
+      do ilev = 1, pver
+         do icol = 1, ncol
 
             !   Molecular speed and growth rate: H2SO4. Eq. 21 in Kerminen and Kulmala 2002
-            vmolh2so4=SQRT(8._r8*gasconst_R*t(i,k)/(pi*molmass_h2so4*1.E-3_r8))
-            grh2so4(i,k)=(3.E-9_r8/h2so4_dens)*(vmolh2so4*molmass_h2so4*h2so4(i,k))
-            grh2so4(i,k)=MAX(MIN(grh2so4(i,k),10000._r8),1.E-10_r8)
+            vmolh2so4=SQRT(8._r8*gasconst_R*t(icol,ilev)/(pi*molmass_h2so4*1.E-3_r8))
+            grh2so4(icol,ilev)=(3.E-9_r8/h2so4_dens)*(vmolh2so4*molmass_h2so4*h2so4(icol,ilev))
+            grh2so4(icol,ilev)=MAX(MIN(grh2so4(icol,ilev),10000._r8),1.E-10_r8)
 
             !   Molecular speed and growth rate: ORG. Eq. 21 in Kerminen and Kulmala 2002
-            vmolorg=SQRT(8._r8*gasconst_R*t(i,k)/(pi*molmass_soa*1.E-3_r8))
-            grorg(i,k)=(3.E-9_r8/org_dens)*(vmolorg*molmass_soa*orgforgrowth(i,k))
-            grorg(i,k)=MAX(MIN(grorg(i,k),10000._r8),1.E-10_r8)
+            vmolorg=SQRT(8._r8*gasconst_R*t(icol,ilev)/(pi*molmass_soa*1.E-3_r8))
+            grorg(icol,ilev)=(3.E-9_r8/org_dens)*(vmolorg*molmass_soa*orgforgrowth(icol,ilev))
+            grorg(icol,ilev)=MAX(MIN(grorg(icol,ilev),10000._r8),1.E-10_r8)
 
             ! Combined growth rate (cka)
-            gr(i,k)=grh2so4(i,k)+grorg(i,k)
+            gr(icol,ilev)=grh2so4(icol,ilev)+grorg(icol,ilev)
 
             !-- Lehtinen 2007 parameterization for apparent formation rate
             !   diameters in nm, growth rate in nm h-1, coagulation in s-1
 
-            call appformrate(nuclsize_bin(i,k), d_form*1.E9_r8, nuclrate_bin(i,k), formrate_bin(i,k), coagnuc(i,k), gr(i,k))
-            call appformrate(nuclsize_pbl(i,k), d_form*1.E9_r8, nuclrate_pbl(i,k), formrate_pbl(i,k), coagnuc(i,k), gr(i,k))
+            call appformrate(nuclsize_bin(icol,ilev), d_form*1.E9_r8, nuclrate_bin(icol,ilev), formrate_bin(icol,ilev), coagnuc(icol,ilev), gr(icol,ilev))
+            call appformrate(nuclsize_pbl(icol,ilev), d_form*1.E9_r8, nuclrate_pbl(icol,ilev), formrate_pbl(icol,ilev), coagnuc(icol,ilev), gr(icol,ilev))
 
-            formrate_bin(i,k)=MAX(MIN(formrate_bin(i,k),1.E3_r8),0._r8)
-            formrate_pbl(i,k)=MAX(MIN(formrate_pbl(i,k),1.E3_r8),0._r8)
+            formrate_bin(icol,ilev)=MAX(MIN(formrate_bin(icol,ilev),1.E3_r8),0._r8)
+            formrate_pbl(icol,ilev)=MAX(MIN(formrate_pbl(icol,ilev),1.E3_r8),0._r8)
 
             !   Number of mol nucleated per g air per second.
-            nuclvolume(i,k) = (formrate_bin(i,k) + formrate_pbl(i,k)) & ![particles/cm3]
+            nuclvolume(icol,ilev) = (formrate_bin(icol,ilev) + formrate_pbl(icol,ilev)) & ![particles/cm3]
                  *1.0e6_r8                                 & !==> [particles / m3 /]
                  /volumeToNumber(MODE_IDX_SO4SOA_AIT)   & !==> [m3_{aer} / m3_{air} / sec]
-                 / rhoair(i,k)                            !==> m3_{aer} / kg_{air} /sec
+                 / rhoair(icol,ilev)                            !==> m3_{aer} / kg_{air} /sec
 
             !Estimate how much is organic based on growth-rate
-            if(gr(i,k)>1.E-10_r8) then
-               frach2so4=grh2so4(i,k)/gr(i,k)
+            if(gr(icol,ilev)>1.E-10_r8) then
+               frach2so4=grh2so4(icol,ilev)/gr(icol,ilev)
             else
                frach2so4=1._r8
             end if
 
             ! Nucleated so4 and soa mass mixing ratio per second [kg kg-1 s-1]
             ! used density of particle phase, not of condensing gas
-            nuclso4(i,k)=rhopart(l_so4_na)*nuclvolume(i,k)*frach2so4
-            nuclorg(i,k)=rhopart(l_soa_na)*nuclvolume(i,k)*(1.0_r8-frach2so4)
+            nuclso4(icol,ilev)=rhopart(l_so4_na)*nuclvolume(icol,ilev)*frach2so4
+            nuclorg(icol,ilev)=rhopart(l_soa_na)*nuclvolume(icol,ilev)*(1.0_r8-frach2so4)
 
          end do
       end do
