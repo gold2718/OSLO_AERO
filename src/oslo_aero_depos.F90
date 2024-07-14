@@ -718,8 +718,8 @@ contains
                 jnv = 0  !==> below cloud scavenging coefficients are zero (see above)
              endif
 
-! OS 240207 Increase scavenging efficiency for large soluble particles.
-              if (lphase==1.and.mm.eq.l_ss_a2.or.mm.eq.l_ss_a3.or.mm.eq.l_so4_a2) then
+! Increase scavenging efficiency for large soluble particles.
+              if ((lphase==1).and.(mm==l_ss_a2).or.(mm==l_ss_a3).or.(mm==l_so4_a2)) then
                  sol_factic=1.0_r8 
                  f_act_conv=1.0_r8 
               end if     
