@@ -114,17 +114,17 @@ CONTAINS
 
 
    subroutine initializeCondensation()
+      use physconst, only: boltz, mwdry, pstd, tmelt
 
       ! condensation coefficients:
       ! Theory: Poling et al, "The properties of gases and liquids"! 5th edition, eqn 11-4-4
 
       ! local variables
       real(r8), parameter :: aunit = 1.6606e-27_r8 ! [kg] Atomic mass unit
-      real(r8), parameter :: boltz = 1.3806e-23_r8 ! [J/K/molec]
-      real(r8), parameter :: t0 = 273.15_r8        ! [K] standard temperature
-      real(r8), parameter :: p0 = 101325.0_r8      ! [Pa] Standard pressure
+      real(r8), parameter :: t0 = tmelt            ! [K] standard temperature
+      real(r8), parameter :: p0 = pstd             ! [Pa] Standard pressure
       real(r8), parameter :: radair = 1.73e-10_r8  ! [m] Typical air molecule collision radius
-      real(r8), parameter :: Mair = 28.97_r8       ! [amu/molec] Molecular weight for dry air
+      real(r8), parameter :: Mair = mwdry          ! [amu/molec] Molecular weight for dry air
 
       !Diffusion volumes for simple molecules [Poling et al], table 11-1
       real(r8), parameter :: vad(N_COND_VAP) = (/51.96_r8, 208.18_r8, 208.18_r8/) ![cm3/mol]
@@ -686,8 +686,10 @@ CONTAINS
       real(r8), intent(in)  :: zm(pcols,pver)      ! Height at layer midpoints (m)
       real(r8), intent(in)  :: pblht(pcols)        ! Planetary boundary layer height (m)
       ! Sectional arguments
-      ! because the timestep may be divided in two, the output needs to be averaged over all timesteps
-      ! therefore we track this in these variables
+      ! Because the timestep may be divided in two, the output needs to be
+      ! averaged over all timesteps.
+      ! Therefore we track this in these variables.
+      !XXG: Can we use these to test if we are in sectional aerosol?
       real(r8), intent(inout), optional :: nuclrate(pcols, pver)       ! Nucleation rate output
       real(r8), intent(inout), optional :: nuclrate_pbl_o(pcols, pver) ! Nucleation in pbl rate output
       real(r8), intent(inout), optional :: formrate(pcols, pver)       ! formation rate output
@@ -739,6 +741,11 @@ CONTAINS
       real(r8)              :: zrhoa, zrh, zt, zt2, zt3, zlogrh, zlogrh2, zlogrh3, zlogrhoa, zlogrhoa2, zlogrhoa3, x, zxmole, zix
       real(r8)              :: zjnuc, zntot, zrc, zrxc
 
+      ! Check for sectional behavior
+      logical               :: do_sectional
+
+      ! XXG: is this (always) correct?
+      do_sectional = present(nuclrate)
 
       nuclso4(:,:)=0._r8
       nuclorg(:,:)=0._r8
@@ -956,16 +963,19 @@ CONTAINS
                if(pbl_nucleation == 1) then
 
                   !-- Paasonen et al. (2010), eqn 10, Table 4
-                  nuclrate_pbl(icol,ilev)=(1.7E-6_r8)*h2so4(icol,ilev)
+                  nuclrate_pbl(icol,ilev) = 1.7E-6_r8 * h2so4(icol,ilev)
 
                else if(pbl_nucleation == 2) then
 
-                  !-- Paasonen et al. (2010), eqn 18, Table 3
+                  !-- Paasonen et al. (2010)
+                  !values from Table 3 in Paasonen et al (2010), modified version of eqn 14
+                  !XXG: -- Paasonen et al. (2010), eqn 18, Table 3
                   nuclrate_pbl(icol,ilev)=(A_s1 * h2so4(icol,ilev)) + (A_s2 * orgforgrowth(icol,ilev))
 
                else if(pbl_nucleation == 3) then
                   ! Riccobono 2014:
-                  nuclrate_pbl(icol,ilev)=3.27E-21_r8*h2so4(icol,ilev)**2*orgforgrowth(icol,ilev)
+                  ! XXG https://doi.org/10.1126/science.1243527, eq. 2?
+                  nuclrate_pbl(icol,ilev)=3.27E-21_r8*(h2so4(icol,ilev)**2)*orgforgrowth(icol,ilev)
 
                end if
 
