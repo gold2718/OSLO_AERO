@@ -729,6 +729,7 @@ CONTAINS
       real(r8)              :: orgforgrowth(pcols,pver) ! Organic vapour mass available for growth
 
       real(r8)              :: d_form                   ! Particle size at calculated formation rate [m]
+      real(r8)              :: d_form3pi6               ! d_form**3 * pi / 6
       real(r8)              :: gr(pcols,pver), grh2so4(pcols,pver), grorg(pcols,pver) !growth rates
       real(r8)              :: vmolh2so4, vmolorg       ! [m/s] molecular speed of condenseable gases
       real(r8)              :: frach2so4
@@ -768,6 +769,7 @@ CONTAINS
          !-- Formation diameters (m). Nucleated particles are inserted to SO4(n), same size used for soa  (cka)
          d_form = 2._r8*originalNumberMedianRadius(MODE_IDX_SO4SOA_AIT)
       end if
+      d_form3pi6 = d_form**3 * pi / 6._r8
 
       !-- Conversion of H2SO4 from kg/kg to #/cm3
       !-- and calculation of relative humidity (needed by binary nucleation parameterization)
@@ -1015,14 +1017,18 @@ CONTAINS
             formrate_bin(icol,ilev)=MAX(MIN(formrate_bin(icol,ilev),1.E3_r8),0._r8)
             formrate_pbl(icol,ilev)=MAX(MIN(formrate_pbl(icol,ilev),1.E3_r8),0._r8)
 
-            !   Number of mol nucleated per g air per second.
+            ! Number of mol nucleated per g air per second.
             nuclvolume(icol,ilev) = (formrate_bin(icol,ilev) + formrate_pbl(icol,ilev)) & ![particles/cm3]
-                 *1.0e6_r8                                 & !==> [particles / m3 /]
-                 /volumeToNumber(MODE_IDX_SO4SOA_AIT)   & !==> [m3_{aer} / m3_{air} / sec]
-                 / rhoair(icol,ilev)                            !==> m3_{aer} / kg_{air} /sec
+                 * 1.0e6_r8                                                             & ! [particles / m3 /]
+                 / volumeToNumber(MODE_IDX_SO4SOA_AIT)                                  & ! [m3_{aer} / m3_{air} / sec]
+                 / rhoair(icol,ilev)                                                      ! m3_{aer} / kg_{air} /sec
+            end if
+            if (do_sectional) then
+               nuclvolume(icol,ilev) = nuclvolume(icol,ilev) * d_form3pi6 ! [m3_{aer} / m3_{air} / sec]
+            end if
 
-            !Estimate how much is organic based on growth-rate
-            if(gr(icol,ilev)>1.E-10_r8) then
+            ! Estimate how much is organic based on growth-rate
+            if(gr(icol,ilev) > 1.E-10_r8) then
                frach2so4=grh2so4(icol,ilev)/gr(icol,ilev)
             else
                frach2so4=1._r8
