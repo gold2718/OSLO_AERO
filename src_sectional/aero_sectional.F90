@@ -15,14 +15,16 @@ module aero_sectional
 
    ! Public interface
    public :: aerosect_register
-   public :: aerosect_init
    public :: aerosect_write2file
    public :: sec_numberConc
    public :: sec_moveMass
 
    ! Public data
-   integer, public,  parameter :: secNrBins   = 5                                    ! nr of bins
-   integer, public,  parameter :: secNrSpec   = 2                                    ! number of condensing species
+   logical, public, protected :: do_sectional_NPF = .false.
+
+   integer, public, parameter :: secNrBins   = 5 ! nr of bins
+   integer, public, parameter :: secNrSpec   = 2 ! number of condensing species
+
    real(r8), public, parameter :: rhopart_sec(secNrSpec) = (/ 1769.0_r8,1500.0_r8 /) ! same as SO4_NA, SOA_NA
 
    character(len=*), public, parameter :: secSpecNames(secNrSpec) = (/ 'SO4_SEC','SOA_SEC'/) ! names of condensed species
@@ -50,13 +52,14 @@ CONTAINS
 
       integer              :: secInd,volInd
       character(len=20)    :: cnst_name
-      call aerosect_init()  !XXG: Should be moved
       do secInd = 1, secNrBins
          do volInd = 1, secNrSpec ! Names constituents as 'SOA_SEC01' & 'SO4_SEC01'
             write(cnst_name,'(A,I2.2)') trim(secSpecNames(volInd)), secInd
             call cnst_get_ind(trim(cnst_name), secConstIndex(volInd,secInd), abort=.true.)
          end do
       end do
+
+      do_sectional_NPF = .true.
 
    end subroutine aerosect_register
 

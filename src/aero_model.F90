@@ -132,22 +132,28 @@ contains
 
   !=============================================================================
   subroutine aero_model_register()
+    use aero_sectional, only: aerosect_register
 
     call aero_register()
+    ! Sectional aerosol scheme
+    call aerosect_register()
 
   end subroutine aero_model_register
 
   !=============================================================================
   subroutine aero_model_init( pbuf2d )
+    use aero_sectional, only: aerosect_init, do_sectional_NPF
+    use aero_sectional, only: secSpecNames, secNrSpec, secNrBins
 
     ! args
     type(physics_buffer_desc), pointer :: pbuf2d(:,:)
 
     ! local vars
-    integer           :: m, n, id, l
-    character(len=20) :: dummy
-    logical           :: history_aerosol ! Output MAM or SECT aerosol tendencies
-    character(len=2)  :: unit_basename  ! Units 'kg' or '1'
+    integer                      :: mind, bind, sind
+    character(len=fieldname_len) :: field_name
+    logical                      :: history_aerosol ! Output MAM or SECT aerosol tendencies
+
+    character(len=*), parameter  :: unit_name = 'kg/m2/s' ! Field Units
     !------------------------------------
 
     call phys_getopts(history_aerosol_out=history_aerosol, convproc_do_aer_out=convproc_do_aer)
@@ -166,17 +172,19 @@ contains
     call oslo_aero_dust_init()
     call oslo_aero_seasalt_init()
     call oslo_aero_wetdep_init()
+    ! Sectional aerosol scheme
+    call aerosect_init()
 
-    dummy = 'RAM1'
-    call addfld (dummy,horiz_only, 'A','frac','RAM1')
-    if ( history_aerosol ) then
-       call add_default (dummy, 1, ' ')
+    field_name = 'RAM1'
+    call addfld(trim(field_name), horiz_only, 'A', 'frac', 'RAM1')
+    if (history_aerosol) then
+       call add_default(field_name, 1, ' ')
     endif
 
-    dummy = 'airFV'
-    call addfld (dummy,horiz_only, 'A','frac','FV')
-    if ( history_aerosol ) then
-       call add_default (dummy, 1, ' ')
+    field_name = 'airFV'
+    call addfld(trim(field_name), horiz_only, 'A', 'frac', 'FV')
+    if (history_aerosol) then
+       call add_default (field_name, 1, ' ')
     endif
 
     ! Get height of boundary layer for boundary layer nucleation
@@ -189,58 +197,78 @@ contains
     call cnst_get_ind ( "SOA_SV", ndx_soa_sv, abort=.true.)
     ndx_soa_sv = chemistryIndex(ndx_soa_sv)
 
-    do m = 1,gas_pcnst
-       unit_basename = 'kg'  ! Units 'kg' or '1'
+    do mind = 1, gas_pcnst
+       call addfld('GS_'//trim(solsym(mind)),horiz_only, 'A', unit_name, &
+            trim(solsym(mind))//' gas chemistry/wet removal (for gas species)')
 
-       call addfld( 'GS_'//trim(solsym(m)),horiz_only, 'A', unit_basename//'/m2/s ', &
-            trim(solsym(m))//' gas chemistry/wet removal (for gas species)')
+       call addfld('AQ_'//trim(solsym(mind)),horiz_only, 'A', unit_name, &
+            trim(solsym(mind))//' aqueous chemistry (for gas species)')
 
-       call addfld( 'AQ_'//trim(solsym(m)),horiz_only, 'A', unit_basename//'/m2/s ', &
-            trim(solsym(m))//' aqueous chemistry (for gas species)')
-
-       if(physicsIndex(m).le.pcnst) then
-          if (getCloudTracerIndexDirect(physicsIndex(m)) .gt. 0)then
-             call addfld( 'AQ_'//getCloudTracerName(physicsIndex(m)),horiz_only, 'A', unit_basename//'/m2/s ', &
-                  trim(solsym(m))//' aqueous chemistry (for cloud species)')
+       if(physicsIndex(mind) <= pcnst) then
+          if (getCloudTracerIndexDirect(physicsIndex(m)) > 0)then
+             call addfld('AQ_'//getCloudTracerName(physicsIndex(mind)),horiz_only, 'A', unit_name, &
+                  trim(solsym(mind))//' aqueous chemistry (for cloud species)')
           end if
        end if
 
-       if ( history_aerosol ) then
-          call add_default( 'GS_'//trim(solsym(m)), 1, ' ')
-          call add_default( 'AQ_'//trim(solsym(m)), 1, ' ')
-          if(physicsIndex(m).le.pcnst) then
-             if(getCloudTracerIndexDirect(physicsIndex(m)).gt.0)then
-                call add_default( 'AQ_'//getCloudTracerName(physicsIndex(m)),1,' ')
+       if (history_aerosol) then
+          call add_default('GS_'//trim(solsym(m)), 1, ' ')
+          call add_default('AQ_'//trim(solsym(m)), 1, ' ')
+          if(physicsIndex(m) <= pcnst) then
+             if(getCloudTracerIndexDirect(physicsIndex(m)) > 0)then
+                call add_default('AQ_'//getCloudTracerName(physicsIndex(m)),1,' ')
              end if
           end if
-       endif
-    enddo
+       end if
+    end do
 
-    call addfld ('NUCLRATE',(/'lev'/), 'A','#/cm3/s','Nucleation rate')
-    call addfld ('FORMRATE',(/'lev'/), 'A','#/cm3/s','Formation rate of 12nm particles')
-    call addfld ('COAGNUCL',(/'lev'/), 'A', '/s','Coagulation sink for nucleating particles')
-    call addfld ('GRH2SO4',(/'lev'/), 'A', 'nm/hour','Growth rate H2SO4')
-    call addfld ('GRSOA',(/'lev'/),'A','nm/hour','Growth rate SOA')
-    call addfld ('GR',(/'lev'/), 'A', 'nm/hour','Growth rate, H2SO4+SOA')
-    call addfld ('NUCLSOA',(/'lev'/),'A','kg/kg','SOA nucleate')
-    call addfld ('ORGNUCL',(/'lev'/),'A','kg/kg','Organic gas available for nucleation')
-
+    call addfld('NUCLRATE',(/'lev'/), 'A','#/cm3/s','Nucleation rate')
+    call addfld('FORMRATE',(/'lev'/), 'A','#/cm3/s','Formation rate of 12nm particles')
+    call addfld('COAGNUCL',(/'lev'/), 'A', '/s','Coagulation sink for nucleating particles')
+    call addfld('GRH2SO4',(/'lev'/), 'A', 'nm/hour','Growth rate H2SO4')
+    call addfld('GRSOA',(/'lev'/),'A','nm/hour','Growth rate SOA')
+    call addfld('GR',(/'lev'/), 'A', 'nm/hour','Growth rate, H2SO4+SOA')
+    call addfld('NUCLSOA',(/'lev'/),'A','kg/kg','SOA nucleate')
+    call addfld('ORGNUCL',(/'lev'/),'A','kg/kg','Organic gas available for nucleation')
+    if (do_sectional_NPF) then
+       call addfld('NUCLRATE_pbl',(/'lev'/),  'A', '#/cm3/s', 'Nucleation rate, pbl')
+       call addfld('FORMRATE_pbl',(/'lev'/),  'A', '#/cm3/s', 'Formation rate of 12nm particles,pbl')
+       ! For diagnosis of nucleation code
+       call addfld('H2SO4NUCL',     (/'lev'/), 'A', 'kg/kg', 'H2SO4 gas available for nucleation')
+       ! trace mass leaving sectional scheme for introduction to OsloAero:
+       call addfld('leaveSecH2SO4', (/'lev'/), 'A', 'kg/kg', 'H2SO4 leaving sectional scheme for SO4_NA')
+       call addfld ('leaveSecSOA',  (/'lev'/), 'A', 'kg/kg', 'SOA leaving sectional scheme for SO4_NA')
+       ! Add each bin, species as outfield.
+       do bind = 1, secNrBins
+          do sind = 1, secNrSpec
+             write(field_name, '(A,A,I2.2)') 'nr', trim(secSpecNames(sind)), bind
+             call addfld(trim(field_name), (/'lev'/), 'A', 'unit', 'number conc')
+             if(history_aerosol)then
+                call add_default(trim(field_name), 1, ' ')
+             end if
+          end do
+       end do
+    end if
     if(history_aerosol)then
-       call add_default ('NUCLRATE', 1, ' ')
-       call add_default ('FORMRATE', 1, ' ')
-       call add_default ('COAGNUCL', 1, ' ')
-       call add_default ('GRH2SO4', 1, ' ')
-       call add_default ('GRSOA', 1, ' ')
-       call add_default ('GR', 1, ' ')
-       call add_default ('NUCLSOA', 1, ' ')
-       call add_default ('ORGNUCL', 1, ' ')
+       call add_default('NUCLRATE', 1, ' ')
+       call add_default('FORMRATE', 1, ' ')
+       call add_default('COAGNUCL', 1, ' ')
+       call add_default('GRH2SO4', 1, ' ')
+       call add_default('GRSOA', 1, ' ')
+       call add_default('GR', 1, ' ')
+       call add_default('NUCLSOA', 1, ' ')
+       call add_default('ORGNUCL', 1, ' ')
+       if (do_sectional_NPF) then
+          call add_default('H2SO4NUCL',   1, ' ')
+          call add_default('leaveSecH2SO4',1, ' ')
+          call add_default('leaveSecSOA', 1, ' ')
+       end if
     end if
 
-    call addfld( 'XPH_LWC',    (/ 'lev' /), 'A','kg/kg',   'pH value multiplied by lwc')
-    call addfld ('AQSO4_H2O2', horiz_only,  'A','kg/m2/s', 'SO4 aqueous phase chemistry due to H2O2')
-    call addfld ('AQSO4_O3',   horiz_only,  'A','kg/m2/s', 'SO4 aqueous phase chemistry due to O3')
-
-    if ( history_aerosol ) then
+    call addfld('XPH_LWC',    (/ 'lev' /), 'A','kg/kg',   'pH value multiplied by lwc')
+    call addfld('AQSO4_H2O2', horiz_only,  'A','kg/m2/s', 'SO4 aqueous phase chemistry due to H2O2')
+    call addfld('AQSO4_O3',   horiz_only,  'A','kg/m2/s', 'SO4 aqueous phase chemistry due to O3')
+    if (history_aerosol) then
        call add_default ('XPH_LWC', 1, ' ')
        call add_default ('AQSO4_H2O2', 1, ' ')
        call add_default ('AQSO4_O3', 1, ' ')
@@ -249,7 +277,7 @@ contains
   end subroutine aero_model_init
 
   !=============================================================================
-  subroutine aero_model_drydep  ( state, pbuf, obklen, ustar, cam_in, dt, cam_out, ptend )
+  subroutine aero_model_drydep(state, pbuf, obklen, ustar, cam_in, dt, cam_out, ptend)
 
     ! args
     type(physics_state),    intent(in)    :: state    ! Physics state variables
@@ -499,7 +527,7 @@ contains
     dvmrdt_sv1 = (vmr - dvmrdt_sv1)/delt
     dvmrcwdt_sv1 = (vmrcw - dvmrcwdt_sv1)/delt
 
-    if(ndx_h2so4 .gt. 0)then
+    if(ndx_h2so4 > 0)then
        del_h2so4_aqchem(:ncol,:) = dvmrdt_sv1(:ncol,:,ndx_h2so4)*delt !"production rate" of H2SO4
     else
        del_h2so4_aqchem(:ncol,:) = 0.0_r8
@@ -516,8 +544,8 @@ contains
        !In oslo aero also write out the tendencies for the
        !cloud borne aerosols...
        n = physicsIndex(m)
-       if (n.le.pcnst) then
-          if(getCloudTracerIndexDirect(n) .gt. 0)then
+       if (n <= pcnst) then
+          if(getCloudTracerIndexDirect(n) > 0)then
              name = 'AQ_'//trim(getCloudTracerName(n))
              wrk(:ncol)=0.0_r8
              do k=1,pver
@@ -690,7 +718,7 @@ contains
 
     !Prepare modal properties
     do i=0, nmodes_oslo
-       if(getNumberOfTracersInMode(i) .gt. 0)then
+       if(getNumberOfTracersInMode(i) > 0)then
 
           !Approximate density of mode
           !density of mode is density of first species in mode
@@ -759,7 +787,7 @@ contains
     ! Normalized size distribution must sum to one (accept 2% error)
     do kcomp=0,nmodes_oslo
        sumNormNk = sum(normnk(kcomp,:))
-       if(abs(sum(normnk(kcomp,:)) - 1.0_r8) .gt. 2.0e-2_r8)then
+       if(abs(sum(normnk(kcomp,:)) - 1.0_r8) > 2.0e-2_r8)then
           print*, "sum normnk", sum(normnk(kcomp,:))
           call endrun()
        endif
@@ -821,7 +849,7 @@ contains
     do irelh=1,SIZE(rhtab) - 1
        do k=1,pver
           do i=1,ncol
-             if (xrh(i,k).ge.rhtab(irelh) .and. xrh(i,k).le.rhtab(irelh+1)) then
+             if (xrh(i,k) >= rhtab(irelh) .and. xrh(i,k) <= rhtab(irelh+1)) then
                 irh1(i,k)=irelh                !lower index
                 irh2(i,k)=irelh+1              !higher index
              end if
@@ -872,7 +900,7 @@ contains
 
              !Find the average growth of this mode
              !(still not taking into account how much we have!!)
-             if(TracerCounter .gt. 0)then
+             if(TracerCounter > 0)then
 
                 !Convert to diameter and take average (note: This is MASS median diameter)
                 wetNumberMedianDiameter(i,k,m) = 2.0_r8 * SUM(wetrad_tmp(1:tracerCounter))/dble(tracerCounter)
