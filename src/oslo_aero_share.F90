@@ -14,7 +14,7 @@ module oslo_aero_share
   use physconst,      only: pi
   !
   implicit none
-  public          ! Make default type private to the module
+  public          ! This is a public module
 
   !---------------------------
   ! Public interfaces

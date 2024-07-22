@@ -36,7 +36,7 @@ module oslo_aero_condtend
   use oslo_aero_share, only: externallyMixedMode, rBinMidpoint, getTracerIndex
   use oslo_aero_share, only: getNumberOfTracersInMode, normnk, numberToSurface
   use oslo_aero_share, only: volumeToNumber, numberOfExternallyMixedModes
-  use aero_sectional,  only: secNrSpec,secNrBins, secMeanD
+  use aero_sectional,  only: secNrSpec,secNrBins, secMeanD, do_sectional_NPF
 
   implicit none
   private
@@ -132,7 +132,9 @@ CONTAINS
       real(r8), parameter :: cm2Tom2         = 1.e-4_r8                           !convert from cm2 ==> m2
       real(r8), parameter :: aThird          = 1.0_r8/3.0_r8
       !
-      real(r8) :: DiffusionCoefficient(0:100,0:nmodes,N_COND_VAP)  ! [m2/s] Diffusion coefficient
+      real(r8) :: DiffusionCoefficient(nBinsTab,0:nmodes,N_COND_VAP)  ! [m2/s] Diffusion coefficient
+      real(r8), allocatable :: DiffusionCoefficientSec(:,:) ! [m2/s] Diffusion coefficient sectional
+
       character(len=fieldname_len+3) :: fieldname_donor
       character(len=fieldname_len+3) :: fieldname_receiver
       character(128)                 :: long_name
@@ -142,6 +144,7 @@ CONTAINS
       integer  :: iChem            !counter for chemical species
       integer  :: mode_index_donor !index for mode
       integer  :: iMode            !Counter for mode
+      integer  :: iBin             !Counter for bin
       integer  :: tracerIndex      !counter for chem. spec
       logical  :: history_aerosol
       logical  :: isAlreadyOnList(gas_pcnst)
@@ -155,6 +158,7 @@ CONTAINS
       real(r8) :: radmol           ![m] radius molecule
       integer  :: iDonor
       integer  :: l_donor
+      integer  :: rc
       !--------------------------------------------------
 
       !These are the lifecycle-species which receive mass when
@@ -229,11 +233,24 @@ CONTAINS
             enddo
          end do !receiver modes
       end do
+      if (do_sectional_NPF) then
+         if (.not. allocated(DiffusionCoefficientSec)) then
+            allocate(DiffusionCoefficientSec(secNrSpec, secNrBins), stat=rc)
+         end if
+         do indSpec = 1, secNrSpec ! loop through species
+            do indBin = 1, secNrBins         !all bins receive condensation
+               !Correct for non-continuum effects, formula is from
+               !Chuang and Penner, Tellus, 1995, sticking coeffient from
+               !Vignati et al, JGR, 2004
+               !fxm: make "diff ==> diff (cond_vap_idx)
+               DiffusionCoefficientSec(indSpec, indBin) = diff(indSpec) / &    !original diffusion coefficient
+                    ((secMeanD(indBin)*0.5_r8/(secMeanD(indBin)*0.5_r8 + mfv(indSpec))) +  &  !non-continuum correction factor
+                    (4.0_r8*diff(indSpec)/(1._r8*th(indSpec)*0.5_r8*secMeanD(indBin))))  ! sticking coefficient set to 1
+            end do
+         end do
+      end if
 
       normalizedCondensationSink(:,:) = 0.0_r8
-      if (.not. allocated(normalizedCondensationSink_sec)) then
-         allocate(normalizedCondensationSink_sec((0:nmodes,N_COND_VAP)))
-      end if
       !Find sink per particle in mode "imode"
       !Eqn 13 in Kulmala et al, Tellus 53B, 2001, pp 479
       !http://onlinelibrary.wiley.com/doi/10.1034/j.1600-0889.2001.530411.x/abstract
@@ -249,6 +266,22 @@ CONTAINS
             end do
          end do
       end do
+
+      if (do_sectional_NPF) then
+         if (.not. allocated(normalizedCondensationSink_sec)) then
+            allocate(normalizedCondensationSink_sec(0:nmodes,N_COND_VAP), stat=rc))
+         end if
+         normalizedCondensationSink_sec(:,:) = 0.0_r8 !XXG: Is this necessary?
+         do indSpec =1, secNrSpec
+            do indBin = 1, secNrBins
+               ! Since we do not sum over bins, it is slightly different than above (normnk=1, no summing)
+               normalizedCondensationSink_sec(indSpec, indBin) = &
+                    + 4.0_r8*pi                                  & !XXG: Why the plus sign?
+                    * DiffusionCoefficientSec(indSpec, indBin)   &    ![m2/s] diffusion coefficient
+                    * secMeanD(indBin)*0.5_r8                    ![m] radius of bin
+            end do
+         end do
+      end if
 
       !Initialize output
       call phys_getopts(history_aerosol_out = history_aerosol)
@@ -297,11 +330,186 @@ CONTAINS
          call add_default( fieldname_receiver, 1, ' ' )
       end if
 
+      if (do_sectional_NPF) then
+         do iChem = 1, secNrSpec
+            do imode = 1, secNrBins
+               write(fieldname_receiver,'(A,I2.2,A)') trim(secSpecNames(iChem)), imode, '_condTend'
+               call addfld(fieldname_receiver, horiz_only, "A", unit,'condensation tendency')
+               if (history_aerosol) then
+                  call add_default(fieldname_receiver, 1, ' ' )
+               end if
+            end do !imod
+         end do !iChem
+         ! +++smb extra output smb #todo remove this. !XXG: Remove?
+         do imode = 1, secNrBins
+            write(fieldname_receiver,'(A,I2.2,A)') 'nrSEC', imode, '_diff'
+            call addfld(trim(fieldname_receiver),  (/'lev'/), 'A', 'nr/m3', &
+                 'difference in sectional scheme before and after condensation')
+         end do
+      end if
+
    end subroutine initializeCondensation
 
    !===============================================================================
 
-   subroutine condtend(lchnk, q, cond_vap_gasprod, temperature, &
+   subroutine condtend(lchnk,  q, cond_vap_gasprod, temperature, &
+        pmid, pdel, dt, ncol, pblh, zm, qh20)
+      ! Calculates nucleation rate and condensation rate of aerosols
+      !
+      ! This method calls the condtend method. If the timestep needs to be split in two,
+      ! this will be done here and the condtend method will be called several times.
+      ! This method also writes output once condend is done.
+      !
+      use cam_history,    only: outfld,fieldname_len
+      use koagsub,        only: normalizedcoagulationsink, receivermode, numberofcoagulationreceivers
+      use koagsub,        only: normalizedcoagulationsinknpf, receivermodenpf, numberofcoagulationreceiversnpf
+
+      use aero_sectional, only: secSpecNames, secConstIndex, secNrBins, secNrSpec, sec_numberconc
+
+      use constituents,   only: pcnst
+
+      ! arguments
+      integer,  intent(in)    :: lchnk                   ! chunk identifier
+      integer,  intent(in)    :: ncol                    ! number of columns
+      real(r8), intent(in)    :: temperature(pcols,pver) ! Temperature (K)
+      real(r8), intent(in)    :: pmid(pcols,pver)        ! [Pa] pressure at mid point
+      real(r8), intent(in)    :: pdel(pcols,pver)        ! [Pa] difference in grid cell
+      real(r8), intent(inout) :: q(pcols,pver,gas_pcnst) ! TMR [kg/kg] including moisture
+      ! TMR [kg/kg/sec] production rate of H2SO4 (gas prod - aq phase uptake)
+      real(r8), intent(in)    :: cond_vap_gasprod(pcols,pver,N_COND_VAP)
+      real(r8), intent(in)    :: dt                      ! Time step
+                                                         ! Needed for soa nucleation treatment
+      real(r8), intent(in)    :: pblh(pcols)             ! pbl height (m)
+      real(r8), intent(in)    :: zm(pcols,pverp)         ! midlayer geopotential height above the surface (m) (pver+1)
+      real(r8), intent(in)    :: qh20(pcols,pver)        ! specific humidity (kg/kg)
+
+      real(r8)       :: q_t0(pcols,pver,gas_pcnst) ! mass before subroutine.
+
+      logical        :: history_aerosol
+      character(128) :: long_name
+      character(8)   :: unit
+
+      real(r8)       :: dt_local
+
+      !output:
+      real(r8)      :: coltend(pcols, gas_pcnst)
+      real(r8)      :: coltend_dummy(pcols, gas_pcnst)
+      real(r8)      :: nuclrate_pbl(pcols,pver)                           ! [kg/kg] tracer lost
+      real(r8)      :: nuclrate(pcols,pver)                               ! [kg/kg] tracer lost
+      real(r8)      :: formrate_pbl(pcols,pver)                           ! [kg/kg] tracer lost
+      real(r8)      :: formrate(pcols,pver)                               ! [kg/kg] tracer lost
+      real(r8)      :: h2so4nucl(pcols,pver)                              ! h2so4 in nucleation code
+      real(r8)      :: orgnucl(pcols,pver)                                ! organics in nucleation code
+      real(r8)      :: grh2so4(pcols,pver)                                ! growth rate h2so4
+      real(r8)      :: grsoa(pcols,pver)                                  ! growth rate SOA
+      real(r8)      :: coagnucl(pcols,pver)                               ! coagulation in nucleation
+      real(r8)      :: leaveSec(pcols,pver,secNrSpec)                     ! [kg/kg] tracer lost
+      real(r8)      :: leaveSec_dummy(pcols,pver, secNrSpec)              ! [kg/kg] tracer lost
+      logical       :: notDone                                            ! if not done, continues
+      logical       :: split_dt                                           ! whether timestep is split or not
+      integer       :: nr_dt, cnt                                         ! number of runs
+      integer       :: i, j, k                                            ! indices
+      real(r8)      :: numberconcentration_sec_old(pcols,pver, secnrbins) ! [#/m3] number concentration before
+      real(r8)      :: numberconcentration_sec_new(pcols,pver, secnrbins) ! [#/m3] number concentration new
+      real(r8)      :: dummy_nc                                           ! [#/m3] number concentration
+      integer       :: indBin                                             ! index for bin
+      integer       :: ind_sec                                            ! chemistry index sectional
+      integer       :: indSpec                                            ! index for condensing volatile species
+      real(r8)      :: rhoAir
+      character(18) :: fieldname_receiver
+
+      numberconcentration_sec_old(:,:,:) = 0.0_r8
+      do k = 1, pver
+         do i = 1, ncol
+            rhoAir = pmid(i,k)/rair/temperature(i,k)
+            do indBin = 1, secNrBins
+               !Go through all species in bin
+               do indSpec = 1,secNrSpec
+                  ind_sec=chemistryIndex(secConstIndex(indSpec, indBin))
+                  call sec_numberConc(q(i,k,ind_sec),indSpec, &!SpecNames(tracerIndex), &
+                       indBin,rhoAir, &
+                       dummy_nc)
+                  ! add concentration from species
+                  numberConcentration_sec_old(i,k, indBin)=numberconcentration_sec_old(i,k, indBin)+&
+                       dummy_nc
+               end do
+            end do
+         end do
+      end do
+
+      !initialization
+      q_t0(:,:,:)=q(:,:,:) ! in case timestep needs to be decreased.
+      coltend(:,:)=0.0_r8
+      coltend_dummy(:,:)=0.0_r8
+      nuclrate_pbl(:,:)=0.0_r8
+      nuclrate(:,:)=0.0_r8
+      formrate_pbl(:,:)=0.0_r8
+      formrate(:,:)=0.0_r8
+      h2so4nucl(:,:)=0.0_r8
+      orgnucl(:,:)=0.0_r8
+      grh2so4(:,:)=0.0_r8
+      grsoa(:,:)=0.0_r8
+      coagnucl(:,:)=0.0_r8
+      dt_local=dt / 2.0_r8 ! always half timestep
+      notDone=.TRUE.
+      split_dt=.FALSE.
+      nr_dt=2
+      cnt=1
+      ! run until no need to split time any longer
+      do while (notDone )
+         call condtend_sub(lchnk, q, cond_vap_gasprod, temperature, &
+              nuclrate,nuclrate_pbl,formrate, formrate_pbl, coagnucl, &
+              orgnucl, h2so4nucl,grsoa, grh2so4, &
+              coltend_dummy, split_dt, &
+              leaveSec_dummy,&
+              pmid, pdel, dt_local, ncol, pblh, zm, qh20)
+         coltend = coltend + (coltend_dummy*dt_local) ! divides by timestep at end
+         leaveSec= leaveSec + (leaveSec_dummy*dt_local)
+         if (split_dt) then ! If split timestep: split timestep
+            dt_local = dt_local/2.0_r8
+            cnt=1
+            nr_dt=nr_dt*2
+            q(:,:,:)=q_t0(:,:,:)
+            coltend(:,:)=0.0_r8
+            coltend_dummy(:,:)=0.0_r8
+            nuclrate_pbl(:,:)=0.0_r8
+            nuclrate(:,:)=0.0_r8
+            formrate_pbl(:,:)=0.0_r8
+            formrate(:,:)=0.0_r8
+            h2so4nucl(:,:)=0.0_r8
+            orgnucl(:,:)=0.0_r8
+            grh2so4(:,:)=0.0_r8
+            grsoa(:,:)=0.0_r8
+            coagnucl(:,:)=0.0_r8
+            notDone=.TRUE.
+
+         else if (nr_dt == cnt) then ! if not, check if count is eq to number of splits
+            notDone=.FALSE.
+         else ! if not done and no need to split timestep again, add one to count.
+            cnt = cnt+1
+         end if
+      end do
+
+      ! divide by timestep:
+      leaveSec = leaveSec / dt
+      coltend = coltend / dt
+      nuclrate = nuclrate / dt
+      nuclrate_pbl = nuclrate_pbl / dt
+      formrate = formrate / dt
+      formrate_pbl = formrate_pbl / dt
+      h2so4nucl = h2so4nucl / dt
+      orgnucl = orgnucl / dt
+      grh2so4 = grh2so4 / dt
+      grsoa = grsoa / dt
+      coagnucl = coagnucl / dt
+
+      !XXG: output!!!
+
+   end subroutine condtend
+
+   !===============================================================================
+
+   subroutine condtend_sub(lchnk, q, cond_vap_gasprod, temperature, &
         pmid, pdel, dt, ncol, pblh, zm, qh20)
 
       ! Calculate the sulphate nucleation rate, and condensation rate of
@@ -652,7 +860,7 @@ CONTAINS
 
       endif
 
-   end subroutine condtend
+   end subroutine condtend_sub
 
    !===============================================================================
 
@@ -741,12 +949,6 @@ CONTAINS
       ! Variables for binary nucleation parameterization
       real(r8)              :: zrhoa, zrh, zt, zt2, zt3, zlogrh, zlogrh2, zlogrh3, zlogrhoa, zlogrhoa2, zlogrhoa3, x, zxmole, zix
       real(r8)              :: zjnuc, zntot, zrc, zrxc
-
-      ! Check for sectional behavior
-      logical               :: do_sectional
-
-      ! XXG: is this (always) correct?
-      do_sectional = present(nuclrate)
 
       nuclso4(:,:)=0._r8
       nuclorg(:,:)=0._r8
@@ -1023,7 +1225,7 @@ CONTAINS
                  / volumeToNumber(MODE_IDX_SO4SOA_AIT)                                  & ! [m3_{aer} / m3_{air} / sec]
                  / rhoair(icol,ilev)                                                      ! m3_{aer} / kg_{air} /sec
             end if
-            if (do_sectional) then
+            if (do_sectional_NPF) then
                nuclvolume(icol,ilev) = nuclvolume(icol,ilev) * d_form3pi6 ! [m3_{aer} / m3_{air} / sec]
             end if
 
