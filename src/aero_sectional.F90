@@ -12,6 +12,8 @@ module aero_sectional
    integer, public, parameter :: secNrBins   = 0 ! nr of bins
    integer, public, parameter :: secNrSpec   = 0 ! number of condensing species
 
+   real(r8), public, parameter :: sec_min_diameter = 5.0e-9_r8  ! [m] minumum diameter
+
    real(r8), public, parameter :: rhopart_sec(secNrSpec)
 
    character(len=*), public, parameter :: secSpecNames(secNrSpec)

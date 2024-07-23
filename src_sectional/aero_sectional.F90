@@ -39,10 +39,10 @@ module aero_sectional
 
    ! Private data
    ! See Blichner et.al., sec. 2.2
-   real(r8), parameter :: max_diameter = 39.6e-9_r8 ! [m] volume median diameter of NPF background moede
-                                                    ! calculated so that volume2number should be correct
-   real(r8), parameter :: min_diameter = 5.0e-9_r8  ! [m] minumum diameter
-   real(r8), parameter :: max_volume = max_diameter**3 * pi / 6.0_r8
+   real(r8), parameter, public :: sec_min_diameter = 5.0e-9_r8  ! [m] minumum diameter
+   real(r8), parameter :: sec_max_diameter = 39.6e-9_r8 ! [m] volume median diameter of NPF background mode
+                                                        ! calculated so that volume2number should be correct
+   real(r8), parameter :: max_volume = sec_max_diameter**3 * pi / 6.0_r8
 
 CONTAINS
 
@@ -72,8 +72,8 @@ CONTAINS
       secCoagulate_receiver = (/ l_so4_a1, l_soa_a1/)  ! number of condensing species
 
       ! Use discrite geometric distribution/volume-ratio size distrib:
-      d_rat = (max_diameter/min_diameter)**(1._r8/secNrBins)
-      secMeanD(1) = min_diameter
+      d_rat = (sec_max_diameter/sec_min_diameter)**(1._r8/secNrBins)
+      secMeanD(1) = sec_min_diameter
       do ind = 2, secNrBins
          secMeanD(ind) = secMeanD(ind-1) * d_rat
       end do

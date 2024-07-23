@@ -11,7 +11,7 @@ module oslo_aero_coag
   use chem_mods,      only: gas_pcnst
   use mo_tracname,    only: solsym
   use mo_constants,   only: pi
-  use physconst,      only: rair, gravit
+  use physconst,      only: rair, gravit, boltz, rhoh2o
   use cam_history,    only: addfld, add_default, fieldname_len, horiz_only, outfld
   use cam_logfile,    only: iulog
   !
@@ -28,6 +28,9 @@ module oslo_aero_coag
   use oslo_aero_share, only: l_so4_a1, l_soa_na, l_soa_a1, l_so4_a2
   use oslo_aero_share, only: chemistryindex, physicsindex, is_process_mode
   use oslo_aero_share, only: getNumberOfTracersInMode, getTracerIndex, qqcw_get_field
+  ! Sectional data
+  use aero_sectional,  only: secNrBins, secNrSpec,secMeanD, rhopart_sec, secConstIndex
+  use aero_sectional,  only: sec_min_diameter, do_sectional_NPF
 
   implicit none
   private
@@ -42,16 +45,23 @@ module oslo_aero_coag
   private :: calculateMeanFreePath
   private :: calculateGFactor
 
-  integer, parameter, public :: numberOfCoagulationReceivers = 6
-  integer, parameter, public :: numberOfAddCoagReceivers = 6
+  integer,  parameter, public :: numberOfCoagulationReceivers = 6
+  integer,  parameter, public :: numberOfAddCoagReceivers = 6
+  real(r8), parameter         :: rk_NPF = sec_min_diameter/2._r8 ! [m]
 
   real(r8), public :: normalizedCoagulationSink(0:nmodes,0:nmodes) ![m3/#/s]
   real(r8), public :: NCloudCoagulationSink(0:nmodes)              ![m3/#/s]
   real(r8), public :: normCoagSinkAdd(numberOfAddCoagReceivers)    ![m3/#/s]
 
+  ! Sectional data
+  ! npfcoag: add special for new forming particles !XXG: ??
+  real(r8), allocatable :: normalizedCoagulationSinkNPF(0:nmodes) ![m3/#/s]
+  ! sectional add variables for coagulation sink between sectional particles and modal
+  real(r8), allocatable :: normalizedCoagulationSink_sec(secNrBins,0:nmodes) ![m3/#/s]
+  real(r8), allocatable :: normalizedCoagulationSink_autosec(secNrBins,secNrBins) ![m3/#/s] coagulation between parti
   !These are the modes which are coagulating (belonging to mixtures no. 0, 1, 2, 4, 12, 14)
-  integer , parameter :: numberOfCoagulatingModes = 6
-  integer, public :: coagulatingMode(numberOfCoagulatingModes) =    &
+  integer, parameter :: numberOfCoagulatingModes = 6
+  integer, public    :: coagulatingMode(numberOfCoagulatingModes) =    &
        (/MODE_IDX_BC_EXT_AC,            & !inert mode
          MODE_IDX_SO4SOA_AIT,           & !internally mixed small mode
          MODE_IDX_BC_AIT,               & !internally mixed small mode
@@ -95,17 +105,17 @@ module oslo_aero_coag
   integer :: tableindexcloud
 
   real(r8), parameter :: rcoagdroplet = 10.e-6   ! m
-  real(r8), parameter :: kboltzmann = 1.3806488e-23_r8       ![m2 kg s-2 K-1]
+  real(r8), parameter :: kboltzmann = boltz      ![m2 kg s-2 K-1]
   real(r8), parameter :: temperatureLookupTables = 293.15_r8 !Temperature used in look up tables
   real(r8), parameter :: mfpAir = 63.3e-9_r8                 ![m] mean free path air
   real(r8), parameter :: viscosityAir = 1.983e-5_r8          ![Pa s] viscosity of air
-  real(r8), parameter :: rhoh2o = 1000._r8                   !Density of water
 
 !================================================================
 contains
 !================================================================
 
   subroutine initializeCoagulation(rhob,rk)
+    use aero_sectional, only: secSpecNames
 
     ! arguments
     real(r8), intent(in) :: rk(0:nmodes)   ![unit] radius of background (receiver) mode
@@ -335,6 +345,15 @@ contains
           end if
        end if
     end do
+
+    if (do_sectional_NPF) then
+       do iChem = 1, secNrSpec
+          do imode = 1, secNrBins
+             WRITE(fieldname_donor,'(A,I2.2,A)') trim(secSpecNames(iChem)),imode,'_coagLoss'
+             call addfld(fieldname_donor, horiz_only, "A", unit,'coagulation loss sectional')
+          end do !imod
+       end do !iChem
+    end if
 
   end subroutine initializeCoagulation
 
