@@ -45,8 +45,10 @@ module oslo_aero_coag
   private :: calculateMeanFreePath
   private :: calculateGFactor
 
+  integer,  parameter         :: numberOfCoagulatingModes = 6
   integer,  parameter, public :: numberOfCoagulationReceivers = 6
   integer,  parameter, public :: numberOfAddCoagReceivers = 6
+  integer,  parameter, public :: numberOfCoagulationReceiversNPF = numberOfCoagulatingModes+numberOfCoagulationReceivers
   real(r8), parameter         :: rk_NPF = sec_min_diameter/2._r8 ! [m]
 
   real(r8), public :: normalizedCoagulationSink(0:nmodes,0:nmodes) ![m3/#/s]
@@ -60,7 +62,6 @@ module oslo_aero_coag
   real(r8), allocatable :: normalizedCoagulationSink_sec(secNrBins,0:nmodes) ![m3/#/s]
   real(r8), allocatable :: normalizedCoagulationSink_autosec(secNrBins,secNrBins) ![m3/#/s] coagulation between parti
   !These are the modes which are coagulating (belonging to mixtures no. 0, 1, 2, 4, 12, 14)
-  integer, parameter :: numberOfCoagulatingModes = 6
   integer, public    :: coagulatingMode(numberOfCoagulatingModes) =    &
        (/MODE_IDX_BC_EXT_AC,            & !inert mode
          MODE_IDX_SO4SOA_AIT,           & !internally mixed small mode
@@ -71,7 +72,7 @@ module oslo_aero_coag
 
   !These are the modes which are receiving coagulating material in OsloAero
   ! (belonging to mixtures no. 5, 6, 7, 8, 9, 10)
-  integer, public :: receiverMode(numberOfCoagulationReceivers) = &
+  integer, parameter, public :: receiverMode(numberOfCoagulationReceivers) = &
        (/MODE_IDX_SO4_AC, &
          MODE_IDX_DST_A2, &
          MODE_IDX_DST_A3, &
@@ -82,13 +83,20 @@ module oslo_aero_coag
   !And these are the additional modes which are allowed to contribute to the
   ! coagulation sink, defined here and to be used only in the nucleation code in condtend.F90
   ! (belonging to mixtures no. 0, 1, 2, 4, 12, 14)
-  integer, public :: addReceiverMode(numberOfAddCoagReceivers) = &
+  integer, parameter, public :: addReceiverMode(numberOfAddCoagReceivers) = &
        (/MODE_IDX_BC_EXT_AC,            &
          MODE_IDX_SO4SOA_AIT,           &
          MODE_IDX_BC_AIT,               &
          MODE_IDX_OMBC_INTMIX_COAT_AIT, &
          MODE_IDX_BC_NUC,               &
          MODE_IDX_OMBC_INTMIX_AIT /)
+
+  integer, dimension(numberOfCoagulationReceiversNPF) :: receiverModeNPF =  &
+       (/MODE_IDX_SO4_AC,MODE_IDX_DST_A2, MODE_IDX_DST_A3, MODE_IDX_SS_A1,  &
+       MODE_IDX_SS_A2, MODE_IDX_SS_A3,                                      &
+       MODE_IDX_BC_EXT_AC,                                                  &  !inert mode
+       MODE_IDX_SO4SOA_AIT, MODE_IDX_BC_AIT, MODE_IDX_OMBC_INTMIX_COAT_AIT, &  !internally mixed small modes
+       MODE_IDX_BC_NUC, MODE_IDX_OMBC_INTMIX_AIT /)      !externally mixed small modes
 
   !Coagulation moves aerosol mass to the "coagulate" species, so some
   !lifecycle species will receive mass in this routine!
@@ -141,6 +149,23 @@ contains
     character(8)                   :: unit
     logical                        :: history_aerosol
     logical                        :: isAlreadyOnList(gas_pcnst)
+    integer                        :: rc
+
+    ! Allocate sectional variables
+    if (do_sectional_NPF) then
+       allocate(normalizedCoagulationSinkNPF(0:nmodes), stat=rc)
+       if (rc /= 0) then
+          call endrun("Error allocating normalizedCoagulationSinkNPF")
+       end if
+       allocate(normalizedCoagulationSink_sec(secNrBins,0:nmodes), stat=rc)
+       if (rc /= 0) then
+          call endrun("Error allocating normalizedCoagulationSink_sec")
+       end if
+       allocate(normalizedCoagulationSink_autosec(secNrBins,secNrBins), stat=rc)
+       if (rc /= 0) then
+          call endrun("Error allocating normalizedCoagulationSink_autosec")
+       end if
+    end if
 
     !-------------------------------------
     ! Initialize coagulation receivers
