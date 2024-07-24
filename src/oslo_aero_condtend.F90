@@ -278,12 +278,11 @@ CONTAINS
                call endrun("Error allocating normalizedCondensationSink_sec")
             end if
          end if
-         normalizedCondensationSink_sec(:,:) = 0.0_r8 !XXG: Is this necessary?
          do indSpec =1, secNrSpec
             do indBin = 1, secNrBins
                ! Since we do not sum over bins, it is slightly different than above (normnk=1, no summing)
                normalizedCondensationSink_sec(indSpec, indBin) = &
-                    + 4.0_r8*pi                                  & !XXG: Why the plus sign?
+                    4.0_r8*pi                                    &
                     * DiffusionCoefficientSec(indSpec, indBin)   &    ![m2/s] diffusion coefficient
                     * secMeanD(indBin)*0.5_r8                    ![m] radius of bin
             end do
@@ -347,12 +346,6 @@ CONTAINS
                end if
             end do !imod
          end do !iChem
-         ! +++smb extra output smb #todo remove this. !XXG: Remove?
-         do imode = 1, secNrBins
-            write(fieldname_receiver,'(A,I2.2,A)') 'nrSEC', imode, '_diff'
-            call addfld(trim(fieldname_receiver),  (/'lev'/), 'A', 'nr/m3', &
-                 'difference in sectional scheme before and after condensation')
-         end do
       end if
 
       call addfld ('NUCLRATE',(/'lev'/), 'A','#/cm3/s','Nucleation rate')
@@ -1305,13 +1298,12 @@ CONTAINS
                else if(pbl_nucleation == 2) then
 
                   !-- Paasonen et al. (2010)
-                  !values from Table 3 in Paasonen et al (2010), modified version of eqn 14
-                  !XXG: -- Paasonen et al. (2010), eqn 18, Table 3
+                  !values from Table 3 in Paasonen et al (2010), eqn 18
                   nuclrate_pbl(icol,ilev)=(A_s1 * h2so4(icol,ilev)) + (A_s2 * orgforgrowth(icol,ilev))
 
                else if(pbl_nucleation == 3) then
-                  ! Riccobono 2014:
-                  ! XXG https://doi.org/10.1126/science.1243527, eq. 2?
+                  ! Riccobono 2014: eq. 2
+                  ! XXG https://doi.org/10.1126/science.1243527
                   nuclrate_pbl(icol,ilev)=3.27E-21_r8*(h2so4(icol,ilev)**2)*orgforgrowth(icol,ilev)
 
                end if

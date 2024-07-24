@@ -51,16 +51,18 @@ module oslo_aero_coag
   integer,  parameter, public :: numberOfCoagulationReceiversNPF = numberOfCoagulatingModes+numberOfCoagulationReceivers
   real(r8), parameter         :: rk_NPF = sec_min_diameter/2._r8 ! [m]
 
+  !
   real(r8), public :: normalizedCoagulationSink(0:nmodes,0:nmodes) ![m3/#/s]
   real(r8), public :: NCloudCoagulationSink(0:nmodes)              ![m3/#/s]
   real(r8), public :: normCoagSinkAdd(numberOfAddCoagReceivers)    ![m3/#/s]
 
   ! Sectional data
-  ! npfcoag: add special for new forming particles !XXG: ??
+  ! Coagulation sink for nucleating particles: Used for calc. of apparent formation rates.
   real(r8), allocatable :: normalizedCoagulationSinkNPF(0:nmodes) ![m3/#/s]
   ! sectional add variables for coagulation sink between sectional particles and modal
   real(r8), allocatable :: normalizedCoagulationSink_sec(secNrBins,0:nmodes) ![m3/#/s]
-  real(r8), allocatable :: normalizedCoagulationSink_autosec(secNrBins,secNrBins) ![m3/#/s] coagulation between parti
+  ! coagulation between particles in the sectional scheme
+  real(r8), allocatable :: normalizedCoagulationSink_autosec(secNrBins,secNrBins) ![m3/#/s]
   !These are the modes which are coagulating (belonging to mixtures no. 0, 1, 2, 4, 12, 14)
   integer, public    :: coagulatingMode(numberOfCoagulatingModes) =    &
        (/MODE_IDX_BC_EXT_AC,            & !inert mode

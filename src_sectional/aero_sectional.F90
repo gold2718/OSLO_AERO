@@ -176,14 +176,14 @@ CONTAINS
          volume_new(indBin) = 0.0_r8
          volfrac(:,indBin) = 0.0_r8
          do indSpec = 1, secNrSpec ! calculate volume in each bin by mass/density
-            ! XXG: Why this particular number? Parameter?
+            ! XXG: Why this particular number? Parameter? (use small value to avoid / 0)
             if (numberConc_old(indBin) < 1.e-30_r8) then
                volume_new(indBin) = 0.0_r8
             else
                volume_new(indBin) = volume_new(indBin) +                          &
                     (massDistrib(chemistryIndex(secConstIndex(indSpec,indBin))) / &
                     rhopart_sec(indSpec) * rhoAir / (numberConc_old(indBin)))
-               !XXG: More efficient to add volume_new > max_volume check here?
+               !XXG: More efficient to add volume_new > max_volume check here? (yes)
             end if
 
             volfrac(indSpec,indBin) = massDistrib(chemistryIndex(secConstIndex(indSpec,indBin))) / &
@@ -218,13 +218,10 @@ CONTAINS
             ! to avoid this.
             !!XXG: is there any reason to not return immediately here?
             decrease_dt = .TRUE.
-         end if
-
-         !!XXG: Isn't this redundant?
-         if (xfrac <= 0._r8) then
-            decrease_dt = .TRUE.
+            exit
          end if
          xfrac = max(0._r8, min(1._r8, xfrac))
+
          do indSpec =  1, secNrSpec
             numberConc_new(indSpec, indBin) = numberConc_new(indSpec, indBin) +     &
                  (xfrac * numberConc_old(indBin) * volfrac(indSpec,indBin))
@@ -248,17 +245,15 @@ CONTAINS
          numberConc_new(indSpec,secNrBins) = numberConc_new(indSpec,secNrBins) + &
               xfrac * numberConc_old(secNrBins) * &
               volfrac(indSpec,secNrBins)
-         !XXG: comment on next line?
-         leave_sec(indSpec) = & !massDistrib(chemistryIndex(secConstIndex(indSpec, secNrBins)))*(1-xfrac)
+         leave_sec(indSpec) = &
               max_volume * rhopart_sec(indSpec)/rhoAir * &   ! [m3_aer/#]*[kg_aer/m3_aer]/[kg_air/m3_air]--> [kg_aer/kg_air/#][m3_air]
               (1-xfrac) * numberConc_old(secNrBins) * &          ! *[#/m3_air] --> kg_aer/kg_air
               volfrac(indSpec,secNrBins)
       end do
       do indBin = 1, secNrBins
-         do indSpec = 1, secNrSpec ! Assume (!XXG: Assume what??)
-            ! Remove comments below?
-            massDistrib(chemistryIndex(secConstIndex(indSpec,indBin))) = &! &!massDistrib(secConstIndex(indSpec,indBin))+&
-                 rhopart_sec(indSpec)/rhoAir * &!* massfrac(indSpec,indBin)* numberConc_new(indBin)! &
+         do indSpec = 1, secNrSpec
+            massDistrib(chemistryIndex(secConstIndex(indSpec,indBin))) = &
+                 rhopart_sec(indSpec)/rhoAir * &
                  numberConc_new(indSpec, indBin) * secMeanVol(indBin)
          end do
       end do
