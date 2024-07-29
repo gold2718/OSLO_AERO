@@ -54,7 +54,6 @@ module oslo_aero_coag
   !
   real(r8), public :: normalizedCoagulationSink(0:nmodes,0:nmodes) ![m3/#/s]
   real(r8), public :: NCloudCoagulationSink(0:nmodes)              ![m3/#/s]
-  real(r8), public :: normCoagSinkAdd(numberOfAddCoagReceivers)    ![m3/#/s]
 
   ! Sectional data
   ! Coagulation sink for nucleating particles: Used for calc. of apparent formation rates.
@@ -132,10 +131,18 @@ contains
     real(r8), intent(in) :: rhob(0:nmodes) !density of background mode
 
     ! local variables
-    real(r8), dimension(numberOfCoagulationReceivers, numberOfCoagulatingModes, nBinsTab) :: K12 = 0.0_r8  !Coagulation coefficient (m3/s)
-    real(r8), dimension(numberOfAddCoagReceivers,nBinsTab) :: CoagCoeffModeAdd = 0.0_r8  !Coagulation coefficient mode 1 (m3/s)
-    real(r8), dimension(numberOfCoagulatingModes,nBinsTab) :: K12Cl = 0.0_r8  !Coagulation coefficient (m3/s)
-    real(r8), dimension(nBinsTab) :: coagulationCoefficient
+    real(r8) :: K12(numberOfCoagulationReceivers, numberOfCoagulatingModes, nBinsTab) = 0.0_r8 !Coagulation coefficient (m3/s)
+    ! Coagulation coefficient for calculation on coagulation for newly forming particles (m3/s)
+    real(r8) :: K12NPF(numberOfCoagulationReceivers + numberOfCoagulatingModes, nBinsTab) = 0.0_r8
+    ! Coagulation coefficient for sectional schemes with modes (m3/s)
+    real(r8) :: K12_autosec(secNrBins, secNrBins) = 0.0_r8
+    ! K12 for sectional bins with sectional bins (m3/s)
+    real(r8) :: K12_autosec(secNrBins, secNrBins) = 0.0_r8
+    real(r8) :: CoagCoeffModeAdd(numberOfAddCoagReceivers,nBinsTab) = 0.0_r8                   !Coagulation coefficient mode 1 (m3/s)
+    real(r8) :: K12Cl(numberOfCoagulatingModes,nBinsTab) = 0.0_r8                              !Coagulation coefficient (m3/s)
+    real(r8) :: coagulationCoefficient(nBinsTab)
+    ! between sectional bins:
+    real(r8) :: coagulationCoefficient_autosec
     !
     integer :: aMode
     integer :: modeIndex
@@ -224,6 +231,23 @@ contains
        enddo
     end do !receiver modes
 
+    if (do_sectional_NPF) then
+       ! add coagulation for newly formed particles
+       do iReceiverMode = 1, numberOfCoagulatingModes+numberOfCoagulationReceivers
+          modeIndexReceiver = receiverModeNPF(iReceiverMode)
+          ! calculate coagulation coefficient between new particles and each bin in aerotab
+          call calculateCoagulationCoefficient(CoagulationCoefficient    & !O [m3/s] coagulation coefficient
+                                !smb++ sectional: change to NPF radius
+               , rk_NPF                 & !I [m] radius of coagulator
+                                !, rk(MODE_IDX_SO4SOA_AIT) & !Use radius of nucleation mode. ++SMB
+                                !smb++ sectional
+               , rhob(MODE_IDX_SO4SOA_AIT)               & !I [kg/m3] density of coagulator
+               , rhob(modeIndexReceiver) )![kg/m3] density of receiver
+          ! Save values:
+          K12NPF(iReceiverMode,:) = CoagulationCoefficient(:)
+       end do
+    end if
+
     do iReceiverMode = 1, numberOfAddCoagReceivers
        iCoagulatingMode = 1
 
@@ -290,25 +314,6 @@ contains
           end do !Look up table size
        end do    !receiver modes
     end do       !coagulator
-
-
-    !Calculate additional coagulation sink for mode 1 in such a way that it
-    !affects coagulationSink but not the lifecycling (directly) otherwise
-
-    !Sum the loss for all possible receivers
-    normCoagSinkAdd(:) = 0.0_r8
-    iCoagulatingMode = 1
-    do iReceiverMode = 1, numberOfAddCoagReceivers
-       modeIndexReceiver = addReceiverMode(iReceiverMode) !Index of additional receiver mode
-
-       do nsiz=1,nBinsTab  !aerotab bin sizes
-          !Sum up coagulation sink for this coagulating species (for all receiving modes)
-          normCoagSinkAdd(iReceiverMode)      =  &     ![m3/#/s]
-               normCoagSinkAdd(iReceiverMode)    &     ![m3/#/s] Previous value
-               + normnk(modeIndexReceiver, nsiz) &     !Normalized size distribution for receiver mode
-               * CoagCoeffModeAdd(iReceiverMode, nsiz) !Koagulation coefficient (m3/#/s)
-       end do !Look up table size
-    end do    !receiver modes
 
     nsiz=1
     do while (rBinMidPoint(nsiz).lt.rcoagdroplet.and.nsiz.lt.nBinsTab)
