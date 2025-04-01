@@ -327,7 +327,6 @@ contains
     ! instead of hard-coding it.
     !-----------------------------------------------------------------------
 
-    use mpishorthand
     use physics_buffer,  only: pbuf_add_field, dtype_r8
     use ppgrid,          only: pcols, pver, pverp
 

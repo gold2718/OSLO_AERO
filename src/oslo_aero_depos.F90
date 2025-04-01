@@ -6,7 +6,7 @@ module oslo_aero_depos
   ! Wet deposition routines for both aerosols and gas phase constituents.
   !------------------------------------------------------------------------------------------------
 
-  use shr_kind_mod,            only: r8 => shr_kind_r8
+  use shr_kind_mod,            only: r8 => shr_kind_r8, CS => SHR_KIND_CS
   use ppgrid,                  only: pcols, pver, pverp, begchunk, endchunk
   use constituents,            only: pcnst, cnst_name, cnst_get_ind
   use phys_control,            only: phys_getopts, cam_physpkg_is
@@ -37,6 +37,7 @@ module oslo_aero_depos
   private          ! Make default type private to the module
 
   ! Public interfaces
+  public :: oslo_aero_depos_register
   public :: oslo_aero_depos_init
   public :: oslo_aero_depos_dry ! dry deposition
   public :: oslo_aero_depos_wet ! wet deposition
@@ -92,11 +93,22 @@ module oslo_aero_depos
   integer :: nevapr_dpcu_idx = 0
   integer :: ixcldice, ixcldliq
 
+  integer :: idx_wd_a_h2so4 = -1
+
 !===============================================================================
 contains
 !===============================================================================
 
+  subroutine oslo_aero_depos_register()
+    use physics_buffer,  only: pbuf_add_field, dtype_r8
+    use ppgrid,          only: pcols
+
+    ! Register a pbuf field for
+    call pbuf_add_field('WD_A_H2SO4', 'physpkg', dtype_r8, (/pcols/), idx_wd_a_h2so4)
+ end subroutine oslo_aero_depos_register
+
   subroutine oslo_aero_depos_init( pbuf2d )
+    use physics_buffer, only: pbuf_set_field
 
     ! Set oslo aeroslo deposition history output
 
@@ -119,6 +131,8 @@ contains
     prain_idx       = pbuf_get_index('PRAIN')
     nevapr_shcu_idx = pbuf_get_index('NEVAPR_SHCU')
 
+    call pbuf_set_field(pbuf2d, idx_wd_a_h2so4, 0.0_r8)
+
     call phys_getopts( history_aerosol_out = history_aerosol )
 
     is_in_output(:) =.false.
@@ -126,8 +140,8 @@ contains
     wetdep_lq(:) =.false.
 
     ! Mode 0 is not subject to wet deposition? (check noresm1 code..)
-    do m=0,nmodes
-       do l=1,getNumberOfTracersInMode(m)
+    do m = 0, nmodes
+       do l = 1, getNumberOfTracersInMode(m)
 
           tracerIndex = getTracerIndex(m,l,.false.)
           drydep_lq(tracerIndex)=.true.
@@ -599,6 +613,7 @@ contains
     real(r8) :: zeroAerosolConcentration(pcols,pver)
     real(r8), pointer :: fldcw(:,:)
     real(r8), pointer :: fracis(:,:,:)   ! fraction of transported species that are insoluble
+    real(r8), pointer :: wd_a_h2so4(:)
     type(wetdep_inputs_t) :: dep_inputs
     !-----------------------------------------------------------------------
 
@@ -719,9 +734,9 @@ contains
 
 ! Increase scavenging efficiency for large soluble particles.
               if ((lphase==1).and.((mm==l_ss_a2).or.(mm==l_ss_a3).or.(mm==l_so4_a2))) then
-                 sol_factic=1.0_r8 
-                 f_act_conv=1.0_r8 
-              end if     
+                 sol_factic=1.0_r8
+                 f_act_conv=1.0_r8
+              end if
 
              if ((lphase == 1) .and. (lspec <= getNumberOfTracersInMode(m))) then
                 ptend%lq(mm) = .TRUE.
@@ -882,6 +897,10 @@ contains
           enddo   ! lspec = 0, nspec_amode(m)+1
        enddo   ! lphase = 1, 2
     enddo   ! m = 1, ntot_amode
+
+    ! Add in wd_a_h2so4 from het_diags (mo_chm_diags.F90)
+    call pbuf_get_field(pbuf, idx_wd_a_h2so4, wd_a_h2so4)
+    ! @Johannesfjeldsaa, here is where you can compute and output total H2SO4
 
     ! if the user has specified prescribed aerosol dep fluxes then
     ! do not set cam_out dep fluxes according to the prognostic aerosols

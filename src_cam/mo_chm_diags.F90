@@ -56,6 +56,8 @@ module mo_chm_diags
   real(r8), parameter :: N_molwgt = 14.00674_r8
   real(r8), parameter :: S_molwgt = 32.066_r8
 
+  integer :: idx_wd_a_h2so4 = -1
+
 contains
 
   subroutine chm_diags_inti
@@ -63,10 +65,10 @@ contains
     !	... initialize utility routine
     !--------------------------------------------------------------------
 
-    use cam_history,  only : addfld, add_default, horiz_only
-    use constituents, only : cnst_get_ind, cnst_longname
-    use phys_control, only : phys_getopts
-    use mo_drydep,    only : has_drydep
+    use cam_history,        only : addfld, add_default, horiz_only
+    use constituents,       only : cnst_get_ind, cnst_longname
+    use phys_control,       only : phys_getopts
+    use mo_drydep,          only : has_drydep
     use species_sums_diags, only : species_sums_init
     ! OSLO_AERO begin
     use oslo_aero_share, only: getCloudTracerIndexDirect, getCloudTracerName, isAerosol
@@ -979,11 +981,13 @@ contains
 
   end subroutine chm_diags
 
-  subroutine het_diags( het_rates, mmr, pdel, lchnk, ncol )
+  subroutine het_diags( het_rates, mmr, pdel, lchnk, ncol, pbuf )
 
-    use cam_history,  only : outfld
+    use cam_history,    only: outfld
     ! OSLO_AERO begin
-    use phys_grid,    only : get_wght_all_p, get_area_all_p
+    use constituents,   only: cnst_get_ind
+    use phys_grid,      only: get_wght_all_p, get_area_all_p
+    use physics_buffer, only: physics_buffer_desc, pbuf_get_field
     ! OSLO_AERO end
 
     integer,  intent(in)  :: lchnk
@@ -992,12 +996,17 @@ contains
     real(r8), intent(in)  :: mmr(ncol,pver,gas_pcnst)
     real(r8), intent(in)  :: pdel(ncol,pver)
 
+    type(physics_buffer_desc), pointer :: pbuf(:)
+
     real(r8), dimension(ncol) :: noy_wk, sox_wk, nhx_wk, wrk_wd
     ! OSLO_AERO begin
-    real(r8), dimension(ncol) :: area
+    integer           :: id_h2so4
+    real(r8)          :: area(ncol)
+    real(r8)          :: wrk_m2(ncol)
+    real(r8), pointer :: wd_a_h2so4(:)
     ! OSLO_AERO end
-    integer :: m, k
-    real(r8) :: wght(ncol)
+    integer           :: m, k
+    real(r8)          :: wght(ncol)
     !
     ! output integrated wet deposition field
     !
@@ -1008,6 +1017,7 @@ contains
     ! OSLO_AERO begin
     call get_area_all_p(lchnk, ncol, area)
     area = area * rearth**2
+    call cnst_get_ind('H2SO4', id_h2so4, abort=.true.)
     ! OSLO_AERO end
 
     call get_wght_all_p(lchnk, ncol, wght)
@@ -1026,7 +1036,13 @@ contains
        if (gas_wetdep_method=='MOZ') then
           call outfld( wetdep_name(m), wrk_wd(:ncol),               ncol, lchnk )
           ! OSLO_AERO begin
-          call outfld( wetdep_name_area(m), wrk_wd(:ncol)/area(:ncol)  ,ncol, lchnk )
+          ! Save wd_a_h2so4
+          wrk_m2(:) = wrk_wd(:) / area(:)
+          call outfld( wetdep_name_area(m), wd_a_h2so4(:ncol)  ,ncol, lchnk )
+          if (m = id_h2so4) then
+             call pbuf_get_field(pbuf, idx_wd_a_h2so4, wd_a_h2so4)
+             wd_a_h2so4(:ncol) = wrk_m2(:)
+          end if
           ! OSLO_AERO end
           call outfld( wtrate_name(m), het_rates(:ncol,:,m), ncol, lchnk )
 

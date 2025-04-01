@@ -53,7 +53,7 @@ module aero_model
   use oslo_aero_dust,           only: oslo_aero_dust_init, oslo_aero_dust_emis, dust_active
   use oslo_aero_ocean,          only: oslo_aero_ocean_init, oslo_aero_dms_emis
   use oslo_aero_share,          only: getNumberofTracersInMode, getCloudTracerIndexDirect, getCloudTracerName
-  use oslo_aero_share,          only: getCloudTracerName, getTracerIndex, aero_register
+  use oslo_aero_share,          only: getCloudTracerName, getTracerIndex
   use oslo_aero_sox_cldaero,    only: sox_cldaero_init
   use oslo_aero_microp,         only: oslo_aero_microp_readnl
   use oslo_aero_sw_tables,      only: initopt
@@ -133,8 +133,11 @@ contains
 
   !=============================================================================
   subroutine aero_model_register()
+     use oslo_aero_share, only: aero_register
+     use oslo_aero_depos, only: oslo_aero_depos_register
 
     call aero_register()
+    call oslo_aero_depos_register()
 
   end subroutine aero_model_register
 
@@ -327,20 +330,20 @@ contains
     ! local vars
     integer :: beglev(ncol)
     integer :: endlev(ncol)
-  
+
     integer :: i,k
 
     beglev(:ncol)=ltrop(:ncol)+1
     endlev(:ncol)=pver
 
-    ! diameter left out as an argument                                                       
-      call surf_area_dens(ncol, mmr, pmid, temp, beglev, endlev, sad_trop, reff_trop, sfc=sfc) 
+    ! diameter left out as an argument
+      call surf_area_dens(ncol, mmr, pmid, temp, beglev, endlev, sad_trop, reff_trop, sfc=sfc)
 
-      do i = 1,ncol                                                                            
-         do k = ltrop(i)+1, pver                                                               
-            ! djlo : do not use the 0-th mode                                                  
+      do i = 1,ncol
+         do k = ltrop(i)+1, pver
+            ! djlo : do not use the 0-th mode
             dm_aer(i,k,:) = 2._r8 * lifeCycleNumberMedianRadius(1:nmodes_oslo) * 1.e-2_r8 ! radius ==> diameter, m ==> cm
-         enddo                                                                                 
+         enddo
       enddo
 
   end subroutine aero_model_surfarea
@@ -365,7 +368,7 @@ contains
 
    ! local vars
     integer :: beglev(ncol)
-    integer :: endlev(ncol)   
+    integer :: endlev(ncol)
 
     reff_strat = 0._r8
     strato_sad = 0._r8
@@ -623,7 +626,7 @@ contains
     real(r8)         :: numberConcentration(pcols,pver,0:nmodes_oslo)
     real(r8), target :: sad_mode(pcols,pver, nmodes_oslo)
     real(r8)         :: vol_mode(pcols,pver, nmodes_oslo)
-    real(r8)         :: vol(pcols,pver)                  
+    real(r8)         :: vol(pcols,pver)
     real(r8) :: rho_air(pcols,pver)
     integer :: m
     integer :: i,k
@@ -637,7 +640,7 @@ contains
           rho_air(i,k) = pmid(i,k)/(temp(i,k)*rair)
        end do
     end do
-    !    
+    !
     !Get number concentrations in all layers
     call calculateNumberConcentration(ncol, mmr, rho_air, numberConcentration, isChemistry=.true.)
 
@@ -655,13 +658,13 @@ contains
              .or. m .eq. 2 &
              .or. m .eq. 4 &
              .or. m .eq. 5 ) then
-!               currently only over modes 1,2,4 and 5   
+!               currently only over modes 1,2,4 and 5
 !               might be extended in the future with modes 12 and 14
                 sad_mode(i,k,m) = numberConcentration(i,k,m)*numberToSurface(m)*1.e-2_r8 !m2/m3 ==> cm2/cm3
 
                 vol_mode(i,k,m) = numberConcentration(i,k,m) &
                                 * 4._r8 / 3._r8 * pi * lifeCycleNumberMedianRadius(m)**3._r8 &
-                                * dexp(4.5_r8 * log(lifeCycleSigma(m)) *log(lifeCyclesigma(m))) ! m3/m3 = cm3/cm3  
+                                * dexp(4.5_r8 * log(lifeCycleSigma(m)) *log(lifeCyclesigma(m))) ! m3/m3 = cm3/cm3
              endif
           end do
 
